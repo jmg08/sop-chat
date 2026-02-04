@@ -20,7 +20,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.24'
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -73,7 +73,7 @@ jobs:
     - name: Build backend binaries
       run: |
         cd backend
-        go build -v -o sop-chat-server ./cmd/sop-chat-api
+        go build -v -o sop-chat-server ./cmd/sop-chat-server
         go build -v -o sop-chat-cli ./cmd/sop-chat-cli
 
     - name: Upload artifacts
@@ -111,7 +111,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.22'
+        go-version: '1.24'
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -129,6 +129,11 @@ jobs:
         mkdir -p backend/internal/embed/frontend
         cp -r frontend/dist/* backend/internal/embed/frontend/
 
+    - name: Install Go dependencies
+      run: |
+        cd backend
+        go mod download
+
     - name: Build for ${{ matrix.goos }}-${{ matrix.goarch }}
       env:
         GOOS: ${{ matrix.goos }}
@@ -139,10 +144,10 @@ jobs:
         mkdir -p ../dist/${{ matrix.goos }}-${{ matrix.goarch }}
         
         if [ "${{ matrix.goos }}" = "windows" ]; then
-          go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-server.exe ./cmd/sop-chat-api
+          go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-server.exe ./cmd/sop-chat-server
           go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-cli.exe ./cmd/sop-chat-cli
         else
-          go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-server ./cmd/sop-chat-api
+          go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-server ./cmd/sop-chat-server
           go build -o ../dist/${{ matrix.goos }}-${{ matrix.goarch }}/sop-chat-cli ./cmd/sop-chat-cli
         fi
 

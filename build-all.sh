@@ -49,7 +49,7 @@ mkdir -p "${DIST_DIR}/darwin"
 # Build Linux version
 echo -e "${BLUE}Step 4/5: Building Linux version (amd64)...${NC}"
 cd backend
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "../${DIST_DIR}/linux/sop-chat-server" ./cmd/sop-chat-api
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "../${DIST_DIR}/linux/sop-chat-server" ./cmd/sop-chat-server
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Linux version built successfully: ${DIST_DIR}/linux/sop-chat-server${NC}"
     # Display file size
@@ -61,7 +61,7 @@ fi
 
 # Build macOS version
 echo -e "${BLUE}Step 5/5: Building macOS version (amd64)...${NC}"
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../${DIST_DIR}/darwin/sop-chat-server" ./cmd/sop-chat-api
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "../${DIST_DIR}/darwin/sop-chat-server" ./cmd/sop-chat-server
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ macOS version built successfully: ${DIST_DIR}/darwin/sop-chat-server${NC}"
     # Display file size
@@ -73,7 +73,7 @@ fi
 
 # Build macOS ARM64 version (Apple Silicon)
 echo -e "${BLUE}Extra: Building macOS ARM64 version (arm64)...${NC}"
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../${DIST_DIR}/darwin/sop-chat-server-arm64" ./cmd/sop-chat-api
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "../${DIST_DIR}/darwin/sop-chat-server-arm64" ./cmd/sop-chat-server
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ macOS ARM64 version built successfully: ${DIST_DIR}/darwin/sop-chat-server-arm64${NC}"
     # Display file size

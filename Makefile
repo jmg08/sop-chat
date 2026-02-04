@@ -21,7 +21,7 @@ build-frontend:
 # 构建后端（需要先构建前端）
 build-backend:
 	@echo "构建后端..."
-	cd backend && go build -o sop-chat-api ./cmd/sop-chat-api
+	cd backend && go build -o sop-chat-server ./cmd/sop-chat-server
 	@echo "后端构建完成"
 
 # 清理构建产物
@@ -29,5 +29,5 @@ clean:
 	@echo "清理构建产物..."
 	rm -rf frontend/dist
 	rm -rf backend/internal/embed/frontend
-	rm -f backend/sop-chat-api
+	rm -f backend/sop-chat-server
 	@echo "清理完成"

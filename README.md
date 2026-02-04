@@ -59,7 +59,7 @@ A client application for Alibaba Cloud SOP Agent, providing a modern web interfa
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.23+
 - Node.js 18+
 - Alibaba Cloud account with CMS service access
 
@@ -177,7 +177,7 @@ auth:
 ```bash
 cd backend
 go mod download
-go run cmd/sop-chat-api/main.go
+go run cmd/sop-chat-server/main.go
 ```
 
 Server runs on `http://localhost:8080`
@@ -232,7 +232,7 @@ If you need to build frontend and backend separately:
 ```bash
 # Backend
 cd backend
-go build -o sop-chat-server cmd/sop-chat-api/main.go
+go build -o sop-chat-server cmd/sop-chat-server/main.go
 
 # Frontend
 cd frontend

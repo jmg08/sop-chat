@@ -29,7 +29,7 @@ cp -r frontend/dist/* backend/internal/embed/frontend/
 # Build backend
 echo "Step 3/3: Building backend..."
 cd backend
-go build -o sop-chat-server ./cmd/sop-chat-api
+go build -o sop-chat-server ./cmd/sop-chat-server
 go build -o sop-chat-cli ./cmd/sop-chat-cli
 cd ..
 
