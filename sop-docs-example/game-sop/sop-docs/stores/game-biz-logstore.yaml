@@ -1,0 +1,404 @@
+description: 业务流水日志，记录充值支付、物品背包变更、邮件、礼物、公会战奖励等面向客服的核心业务操作。
+
+notes:
+  - Project 固定为 sop-demo，保留期 365 天，客服可直接查询。
+  - 所有日志均含通用字段：user_id（玩家ID）、server_id（区服）、timestamp（Unix ms）、trace_id（链路追踪）。
+  - bag_txn_log 是道具排查的核心数据源，每次背包变更均产生一条不可变记录，任何物品变更都必须有对应流水。
+  - 支付相关日志必须同时保留 order_id（游戏侧）和 cp_order_id（渠道侧）方便双边核对。
+
+query_step:
+  - 1. 所有查询在 Project sop-demo、Logstore game-biz-logstore 中执行, 查询时间范围默认为1天
+  - 2. 确认关键 ID：排查前先从玩家处获取 user_id、server_id 及模块相关业务 ID（order_id / cp_order_id / item_uuid / mail_id 等）。
+  - 3. 选择查询：根据排查场景从下方 query_sqls 中选择对应命名查询，以 <占位符> 格式填入实际值后执行。
+
+fields:
+  # ── 支付相关 ──
+  - name: log_type
+    desc: 日志类型标识，用于过滤特定操作类型。支付相关取值：order_create_log / pay_request_log / pay_gateway_redirect_log / pay_callback_log / idempotent_check_log / deliver_log / order_update_log
+
+  - name: order_id
+    desc: 游戏侧订单 ID，全链路追踪核心主键，全局唯一
+
+  - name: cp_order_id
+    desc: 第三方支付渠道流水号，用于跨系统核对（渠道侧唯一标识）
+
+  - name: trace_id
+    desc: 链路追踪 ID，关联同一次充值请求在游戏服务器、支付网关、发货系统中产生的所有日志，用于端到端问题定位
+
+  - name: amount
+    desc: 充值金额，单位为分（100 = 1 元）
+
+  - name: channel
+    desc: 支付渠道，取值 alipay / wechat / appstore / google_play / huawei 等
+
+  - name: status
+    desc: 订单状态，流转路径：created → paying → paid → delivering → delivered / failed / refunded
+
+  - name: callback_status
+    desc: 回调到达状态（success / failed）
+
+  - name: sign_verify_result
+    desc: 支付回调签名校验结果（success / failed），失败时需技术团队检查渠道密钥配置
+
+  - name: idempotent_key
+    desc: 幂等键，通常为 order_id 或 order_id+cp_order_id 组合，防止重复发货
+
+  - name: is_duplicate
+    desc: 幂等校验是否为重复请求（true/false）
+
+  - name: lock_acquired
+    desc: 分布式锁获取结果（true/false），false 可能导致并发重复处理
+
+  - name: deliver_status
+    desc: 发货结果（success / failed）
+
+  - name: error_code
+    desc: 失败原因码，常见取值：bag_full / product_not_found / service_error
+
+  - name: retry_count
+    desc: 回调或发货重试次数
+
+  # ── 背包/物品相关 ──
+  - name: log_type
+    desc: 背包相关取值：login_log / bag_snapshot_log / bag_txn_log / craft_log
+
+  - name: item_uuid
+    desc: 物品实例 UUID，全局唯一，追踪单件装备的最精确依据
+
+  - name: item_id
+    desc: |
+      物品模板 ID，同种道具共享。常见货币 item_id：
+      currency_diamond：充值钻石（付费货币）
+      currency_bound_diamond：绑定钻石（活动/奖励获得，不可提现）
+      currency_gold：金币（游戏内通用货币）
+
+  - name: change_type
+    desc: 背包变更类型（add / remove / transfer）
+
+  - name: change_reason
+    desc: |
+      背包流水变更原因，取值及含义：
+      purchase：充值发货写入背包
+      drop：掉落获得（怪物/关卡掉落）
+      consume：道具被主动消耗使用（使用消耗品/强化材料）
+      expire：道具到期自动销毁（包括活动限时道具）
+      dismantle：玩家主动分解道具
+      trade_sell：通过交易行挂单卖出
+      trade_buy：通过交易行购入
+      mail_recv：邮件附件领取写入背包
+      mail_expire：邮件附件未在有效期内领取，过期自动销毁
+      gift_recv：好友礼物领取写入背包
+      admin_op：GM 工具强制操作（发放补偿/回收道具等），必须有 reason 字段
+      shop_buy：商城购买消耗货币
+      enhance_fail：强化失败消耗材料或货币
+      pvp_penalty：PVP 对局惩罚扣费（如投降/违规判负）
+      craft：合成时作为材料消耗
+      空或不合理值：可能是系统 Bug，需上报技术团队
+
+  - name: qty_before / qty_after
+    desc: 背包变更前/后数量，两者均需记录，不可仅记录 delta
+
+  - name: delta
+    desc: 数量变化量（正数增加，负数减少）
+
+  - name: source_system
+    desc: 来源系统，取值：pay / craft / battle / mail / shop / gm_tool / trade / event
+
+  - name: operator
+    desc: 操作者，取值：玩家 user_id / system / gm_{uid}
+
+  # ── 邮件/礼物/公会战奖励相关 ──
+  - name: log_type
+    desc: "邮件/礼物/公会战奖励相关取值：mail_send_log / mail_recv_log / gift_send_log / gift_event_log / guild_war_reward_send_log / guild_war_reward_recv_log"
+
+  - name: log_type 枚举说明（邮件/礼物/公会战奖励）
+    desc: |
+      mail_send_log：系统或 GM 向玩家投递邮件，记录 attachment_items 和 expire_time
+      mail_recv_log：玩家领取邮件附件，记录 recv_result（success / failed / expired）和 bag_full 状态
+      gift_send_log：好友发送礼物，记录 gift_uuid / expire_time / gift_status
+      gift_event_log：礼物状态变更事件，event_type 取值：gift_receive（领取）/ gift_expire（过期）/ gift_reject_bag_full（背包满拒收）
+      guild_war_reward_send_log：公会战结束后系统批量发放奖励，记录 recipient_count 和 send_status，是核查全局发放是否成功的入口
+      guild_war_reward_recv_log：玩家领取公会战奖励，记录 recv_result 和 mail_id，无记录时表示玩家尚未打开奖励邮件
+
+  - name: mail_id
+    desc: 邮件唯一 ID
+
+  - name: attachment_items
+    desc: 邮件/礼物附件物品列表（JSON 数组）
+
+  - name: expire_time
+    desc: 邮件/礼物过期时间戳（Unix ms），过期后附件无法找回
+
+  - name: recv_result
+    desc: |
+      领取结果，取值及含义：
+      success：领取成功，附件已写入背包
+      failed：领取时系统异常（非背包满），需技术团队排查
+      expired：邮件/礼物已过期，附件无法找回，告知玩家下次及时领取
+
+  - name: bag_full
+    desc: |
+      领取时背包是否已满：
+      true：背包已满，附件未写入背包；若邮件未过期，玩家清理背包后可重新领取
+      false：背包有空间，不影响领取
+
+  - name: send_status
+    desc: |
+      公会战奖励批量发放任务状态，取值及含义：
+      success：发放任务执行成功，玩家可在邮件/背包中找到奖励
+      failed：发放任务失败，需技术团队手动触发补发流程
+
+  - name: sender_id / receiver_id
+    desc: 礼物发送方 / 接收方 user_id，两者均需记录以支持双向查询
+
+  - name: gift_uuid
+    desc: 礼物实例 UUID，全局唯一，是追踪单件礼物完整生命周期的核心主键
+
+  - name: gift_status
+    desc: 礼物状态（pending / received / expired / rejected）
+
+  - name: event_type
+    desc: |
+      礼物生命周期事件类型，取值及含义：
+      gift_receive + result=success：礼物已成功写入背包
+      gift_receive + result=failed：系统异常导致领取失败，需技术排查
+      gift_reject_bag_full：接收方背包已满，礼物未写入背包，系统自动转为邮件附件待领取
+      gift_expire：礼物超过 expire_time 未被领取，系统自动删除，附件无法找回
+
+query_sqls:
+  - 查询玩家最近充值订单，用于确认游戏侧是否收到充值请求以及订单状态。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="order_create_log"
+    | sort by timestamp desc | limit 20
+    | project order_id, amount, channel, status, timestamp
+    ```
+    notes:
+      - 参数：user_id 填入玩家全局唯一 ID
+      - 结果分析
+        - 未找到记录：游戏服务器未收到充值请求，可能是网络问题或客户端未发起请求
+        - 找到记录：确认 order_id 和 status，继续按 order_id 查后续回调/发货日志
+
+  - 查询指定订单的支付回调（by order_id），确认回调是否到达及签名是否通过。
+    ```tpl_query
+    order_id="<order_id>" AND log_type="pay_callback_log"
+    | project order_id, cp_order_id, channel, callback_status, sign_verify_result, timestamp
+    ```
+    notes:
+      - 参数：order_id 填入游戏侧订单 ID
+      - 结果分析
+        - 无记录：第三方回调未到达，联系支付渠道核查或检查回调 URL 配置
+        - callback_status=success 且 sign_verify_result=success：回调正常，继续查发货
+        - sign_verify_result=failed：签名校验失败，需技术团队检查渠道密钥配置
+
+  - 通过渠道订单号查询回调次数（by cp_order_id），用于重复扣款排查。
+    ```tpl_query
+    cp_order_id="<cp_order_id>" AND log_type="pay_callback_log"
+    | stats count() as callback_count,
+            earliest(timestamp) as first_callback,
+            latest(timestamp) as last_callback
+    ```
+    notes:
+      - 参数：cp_order_id 填入第三方支付渠道流水号
+      - 结果分析
+        - callback_count > 1：同一渠道订单回调多次，属于渠道重发，核查幂等校验是否正常拦截
+        - callback_count = 1：仅一次回调，重复扣款问题在渠道侧，需联系支付渠道处理
+
+  - 查询签名校验失败的回调，用于定位密钥配置问题。
+    ```tpl_query
+    cp_order_id="<cp_order_id>" AND log_type="pay_callback_log"
+    AND sign_verify_result="failed"
+    | project order_id, cp_order_id, channel, callback_status, sign_verify_result, timestamp
+    ```
+    notes:
+      - 参数：cp_order_id 填入第三方支付渠道流水号
+      - 结果分析
+        - 有记录：联系技术团队检查支付渠道密钥与渠道后台是否一致
+
+  - 查询幂等校验记录，确认重复请求是否被正确拦截。
+    ```tpl_query
+    order_id="<order_id>" AND log_type="idempotent_check_log"
+    | project order_id, idempotent_key, is_duplicate, lock_acquired, timestamp
+    ```
+    notes:
+      - 参数：order_id 填入游戏侧订单 ID；也可将过滤条件改为 cp_order_id="<cp_order_id>" 按渠道单号查询
+      - 结果分析
+        - is_duplicate=true：该订单已处理过，是正常幂等拦截，再核查发货记录
+        - lock_acquired=false：分布式锁获取失败，可能导致并发重复处理，需技术排查锁服务
+
+  - 查询发货记录，确认道具是否成功写入背包。
+    ```tpl_query
+    order_id="<order_id>" AND log_type="deliver_log"
+    | project order_id, user_id, product_id, deliver_status, error_code, retry_count, timestamp
+    ```
+    notes:
+      - 参数：order_id 填入游戏侧订单 ID
+      - 结果分析
+        - deliver_status=success：发货成功，继续查背包流水确认到账
+        - deliver_status=failed：查看 error_code（bag_full / product_not_found / service_error）和 retry_count
+        - 无记录：未触发发货流程，需核查支付回调是否到达
+
+  - 查询充值发货写入背包的流水，最终确认道具是否到账。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="bag_txn_log" AND source_system="pay"
+    AND timestamp >= <order_create_time> AND timestamp <= <order_create_time + 3600000>
+    | project item_id, item_name, delta, qty_after, change_reason, timestamp
+    ```
+    notes:
+      - 参数：order_create_time 填入订单创建时间戳（Unix ms），时间窗口为创建后 1 小时
+      - 结果分析
+        - 找到 change_reason=purchase 的记录：钻石/道具已写入背包，充值成功
+        - 无记录：发货成功但背包未更新，可能是发货系统与背包系统之间的异常，上报技术团队
+
+  - 查询物品背包流水（道具消失核心查询），按 item_uuid 追踪单件物品的完整变更链路。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="bag_txn_log"
+    AND item_uuid="<item_uuid>"
+    | sort by timestamp asc
+    | project txn_id, change_type, change_reason, qty_before, qty_after, delta,
+              source_system, operator, timestamp
+    ```
+    notes:
+      - 参数：item_uuid 为物品实例 UUID；如玩家无法提供，可先通过背包快照查询获取
+      - 结果分析
+        - 最后一条 change_type=remove 即为消失原因，重点看 change_reason 字段
+        - change_reason=expire：过期销毁，正常逻辑
+        - change_reason=trade_sell：交易行卖出，查 game-audit-logstore trade_log 确认
+        - change_reason=admin_op：GM 操作，查 game-audit-logstore gm_op_log
+        - change_reason 为空或不合理：可能是系统 Bug，上报技术团队
+
+  - 查询货币变更流水，排查钻石/金币异常减少。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="bag_txn_log"
+    AND item_id="<currency_item_id>"
+    AND timestamp >= <time_range_start> AND timestamp <= <time_range_end>
+    | sort by timestamp asc
+    | project txn_id, change_reason, qty_before, qty_after, delta, source_system, timestamp
+    ```
+    notes:
+      - 参数：currency_item_id 常见取值：currency_diamond（充值钻石）/ currency_bound_diamond（绑钻）/ currency_gold（金币）
+      - 结果分析
+        - shop_buy：商城购买，正常消耗
+        - enhance_fail：强化失败消耗，正常逻辑
+        - pvp_penalty：PVP 惩罚，正常逻辑
+        - expire：限时货币过期（活动绑钻等）
+        - admin_op：GM 操作，需查 gm_op_log 确认原因
+        - change_reason 不明：上报技术团队排查 Bug
+
+  - 查询背包快照，找到物品最后存在时刻并获取 item_uuid。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="bag_snapshot_log"
+    AND item_id="<item_id>"
+    | sort by timestamp desc | limit 5
+    | project timestamp, item_uuid, item_id, item_name, qty, bag_slot
+    ```
+    notes:
+      - 参数：item_id 填入物品模板 ID
+      - 结果分析：找到最近一次快照中该物品的 item_uuid，作为背包流水追踪的输入参数
+
+  - 查询玩家登录记录，排查盗号/异地登录。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="login_log"
+    AND timestamp >= <time_range_start>
+    | sort by timestamp desc | limit 10
+    | project timestamp, ip_address, device_id, login_result, server_id
+    ```
+    notes:
+      - 参数：time_range_start 建议从道具消失前 24 小时开始
+      - 结果分析
+        - 出现与玩家常用 ip/device_id 不同的记录：疑似盗号，优先处理账号安全（改密/解绑设备）
+        - login_result=failed 出现多次：账号被尝试暴力破解
+
+  - 查询邮件发送记录，确认邮件是否成功投递及过期时间。
+    ```tpl_query
+    receiver_id="<user_id>" AND log_type="mail_send_log"
+    AND timestamp >= <time_range_start>
+    | project mail_id, sender_id, subject, attachment_items, send_time, expire_time, mail_status
+    ```
+    notes:
+      - 结果分析
+        - 无记录：邮件未发出，排查发件方（活动/GM）的发送流程
+        - 有记录：确认 expire_time，若已过期则附件无法找回
+
+  - 查询邮件领取记录，确认附件是否已被领取及领取结果。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="mail_recv_log" AND mail_id="<mail_id>"
+    | project mail_id, recv_time, recv_result, attachment_items, bag_full
+    ```
+    notes:
+      - 结果分析
+        - bag_full=true：背包满导致领取失败，告知玩家清理背包后重新领取（如邮件未过期）
+        - recv_result=expired：邮件已过期，附件无法找回，安抚玩家
+
+  - 查询礼物领取写入背包的流水，确认礼物道具是否实际到账。
+    ```tpl_query
+    user_id="<receiver_id>" AND log_type="bag_txn_log" AND change_reason="gift_recv"
+    AND timestamp >= <gift_send_time> AND timestamp <= <gift_send_time + 86400000>
+    | project txn_id, item_id, item_name, delta, qty_after, timestamp
+    ```
+    notes:
+      - 参数：gift_send_time 填入礼物发送时间戳，窗口为发送后 24 小时
+      - 结果分析
+        - 有记录：礼物已写入背包，若玩家说没收到，建议重新登录刷新客户端缓存
+        - 无记录且 gift_event_log 中 event_type=gift_reject_bag_full：背包满，待玩家清理后重新领取
+
+  - 统计某玩家在时间段内的发货次数，排查重复发货问题。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="deliver_log"
+    AND deliver_status="success"
+    AND timestamp >= <time_range_start> AND timestamp <= <time_range_end>
+    | stats count() as deliver_count, dc(order_id) as order_count
+    ```
+    notes:
+      - 参数：time_range 填入可疑充值时间段
+      - 结果分析
+        - deliver_count > order_count：同一订单存在多次成功发货，属重复发货 Bug，上报技术团队
+        - deliver_count = order_count = 1：单次正常发货
+
+  - 查询合成/分解记录，确认材料消耗及产出。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="craft_log"
+    AND timestamp >= <time_range_start>
+    | sort by timestamp desc | limit 10
+    | project craft_id, craft_type, input_items, output_items, craft_result, timestamp
+    ```
+    notes:
+      - craft_type：craft（合成）/ dismantle（分解）
+      - 结果分析
+        - 通过 input_items 确认消耗了哪些材料，output_items 确认产出了什么
+        - craft_result=failed：合成失败，部分配置下材料不会被扣除，需确认游戏规则
+
+  - 查询邮件附件写入背包的流水，确认附件是否实际到账。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="bag_txn_log"
+    AND change_reason="mail_recv" AND mail_id="<mail_id>"
+    | project txn_id, item_id, item_name, delta, qty_after, timestamp
+    ```
+    notes:
+      - 参数：mail_id 填入邮件 ID
+      - 结果分析
+        - 有记录：附件已写入背包，若玩家说没收到，建议重新登录刷新客户端缓存
+        - 无记录：附件未写入背包，查 mail_recv_log 确认 recv_result 和 bag_full 字段
+
+  - 查询公会战奖励发放记录，核查批量发放任务是否成功执行。
+    ```tpl_query
+    guild_id="<guild_id>" AND war_id="<war_id>"
+    AND log_type="guild_war_reward_send_log"
+    | project war_id, guild_id, send_status, recipient_count, send_time, operator
+    ```
+    notes:
+      - 参数：guild_id 填入公会 ID，war_id 填入公会战 ID
+      - 结果分析
+        - send_status=success：发放任务成功执行，继续核查玩家个人领取记录
+        - send_status=failed：发放任务失败，需技术团队手动触发补发流程
+
+  - 查询玩家公会战奖励领取记录，确认玩家是否已领取奖励。
+    ```tpl_query
+    user_id="<user_id>" AND war_id="<war_id>"
+    AND log_type="guild_war_reward_recv_log"
+    | project war_id, user_id, recv_result, mail_id, recv_time
+    ```
+    notes:
+      - 参数：user_id 填入玩家 ID，war_id 填入公会战 ID
+      - 结果分析
+        - 无记录：玩家尚未领取，检查奖励邮件是否存在（可能在邮件箱中未打开）
+        - recv_result=failed：领取失败，查 recv_result / bag_full 字段确认原因（见字段说明）

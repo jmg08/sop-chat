@@ -1,0 +1,122 @@
+description: 系统运行日志，记录服务异常/错误堆栈、性能指标、第三方接口回调原始报文，主要供技术团队排查服务故障使用。
+
+notes:
+  - Project 固定为 sop-demo，保留期仅 90 天，超期后日志不可查询。
+  - 此 Logstore 主要由技术团队查询，客服通常不直接使用，仅在业务日志无法定位根因时辅助排查。
+  - raw_body 字段包含第三方支付渠道签名信息，属高敏感数据，严禁对外展示，仅限技术团队内部使用。
+  - 通过 trace_id 可在此 Logstore 中关联同一次用户操作在业务层产生的系统错误，实现跨层链路追踪。
+
+query_step:
+  - 1. 所有查询在 Project sop-demo、Logstore game-system-logstore 中执行, 查询时间范围默认为1天
+  - 2. 前置条件：通常先在 game-biz-logstore 或 game-audit-logstore 中完成业务层排查，通过 order_id 或 trace_id 定位关联的系统错误。
+  - 3. 选择查询：根据排查场景从下方 query_sqls 中选择对应命名查询，以 <占位符> 格式填入实际值后执行。
+
+fields:
+  - name: log_type
+    desc: 日志类型，取值：service_error_log / callback_raw_log / performance_log / dependency_error_log
+
+  - name: service_name
+    desc: 产生错误的服务名称（pay-service / deliver-service / match-service 等）
+
+  - name: level
+    desc: 日志级别（ERROR / WARN / FATAL），通常只需关注 ERROR 和 FATAL
+
+  - name: error_code
+    desc: 错误码，标识具体错误类型
+
+  - name: error_message
+    desc: 错误描述，人类可读的错误信息
+
+  - name: stack_trace
+    desc: 完整错误堆栈（多行文本），由技术团队分析
+
+  - name: trace_id
+    desc: 链路追踪 ID，与 game-biz-logstore 中的 trace_id 一致，可跨 Logstore 关联同一次请求的所有日志
+
+  - name: order_id
+    desc: 关联订单 ID（支付相关错误时存在）
+
+  - name: callback_source
+    desc: 第三方回调来源（alipay / wechat / appstore / google_play / huawei 等）
+
+  - name: raw_body
+    desc: 回调原始报文（JSON/XML 字符串），高敏感，不可对外展示
+
+  - name: metric_type
+    desc: 性能指标类型（latency / qps / error_rate / memory_usage 等）
+
+  - name: p99_latency_ms
+    desc: P99 响应延迟（毫秒），>1000ms 需重点关注
+
+  - name: error_rate
+    desc: 错误率（0~1），持续 >0.05 需告警处理
+
+  - name: dependency_name
+    desc: 依赖组件名称（mysql-master / redis-cluster / kafka 等）
+
+  - name: error_type
+    desc: 依赖异常类型（connection_refused / timeout / circuit_open 等）
+
+query_sqls:
+  - 查询指定订单的服务错误日志（支付失败根因排查），定位发货失败的具体原因。
+    ```tpl_query
+    order_id="<order_id>" AND level="ERROR"
+    | project timestamp, service_name, error_code, error_message, stack_trace
+    | sort by timestamp asc
+    ```
+    notes:
+      - 参数：order_id 填入游戏侧订单 ID
+      - 结果分析
+        - error_code=bag_full：发货失败是因为玩家背包已满，告知玩家清理后重试
+        - error_code=product_not_found：商品配置错误，需技术团队检查商品配置
+        - error_code=service_error：服务内部错误，结合 stack_trace 由技术团队定位
+
+  - 通过 trace_id 关联全链路错误，还原一次用户操作在所有服务层的报错上下文。
+    ```tpl_query
+    trace_id="<trace_id>" AND level IN ("ERROR", "FATAL")
+    | project timestamp, service_name, error_code, error_message
+    | sort by timestamp asc
+    ```
+    notes:
+      - 参数：trace_id 先从 game-biz-logstore 中对应的业务日志里获取
+      - 结果分析：按时间顺序查看服务链路上各节点的报错，定位第一个出错的服务
+
+  - 查询第三方支付回调原始报文，核查报文内容和签名信息（仅技术团队使用）。
+    ```tpl_query
+    cp_order_id="<cp_order_id>" AND log_type="callback_raw_log"
+    | project callback_source, order_id, cp_order_id, raw_body, received_ip, timestamp
+    ```
+    notes:
+      - 高敏感查询，结果中的 raw_body 字段不可对外展示，仅技术团队使用
+      - 结果分析
+        - 无记录：第三方回调未到达游戏服务器（需核查回调 URL 配置、防火墙规则）
+        - 有记录：将 raw_body 与签名算法重新计算，核查 sign_verify_result=failed 的原因
+
+  - 查询服务性能指标异常，排查高延迟导致的超时/发货失败。
+    ```tpl_query
+    log_type="performance_log" AND service_name="<service_name>"
+    AND p99_latency_ms > 1000
+    AND timestamp >= <time_range_start> AND timestamp <= <time_range_end>
+    | stats avg(p99_latency_ms) as avg_p99,
+            max(p99_latency_ms) as max_p99,
+            avg(error_rate) as avg_err_rate
+    ```
+    notes:
+      - 参数：service_name 填入 pay-service / deliver-service 等服务名
+      - 结果分析
+        - avg_p99 > 1000ms：服务延迟高，可能导致支付回调超时或发货失败
+        - avg_err_rate > 0.05：错误率超 5%，需技术团队介入排查
+
+  - 查询下游依赖异常，排查数据库/缓存故障对业务的影响。
+    ```tpl_query
+    log_type="dependency_error_log"
+    AND timestamp >= <time_range_start> AND timestamp <= <time_range_end>
+    | stats count() as error_count, max(duration_ms) as max_duration
+      by dependency_name, error_type
+    | sort by error_count desc
+    ```
+    notes:
+      - 结果分析
+        - error_type=connection_refused：依赖服务拒绝连接，通常是对应服务宕机
+        - error_type=timeout：依赖响应超时，可能是负载过高或网络抖动
+        - error_type=circuit_open：熔断器已打开，说明依赖长时间异常，需立即处理

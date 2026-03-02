@@ -1,0 +1,510 @@
+description: 行为审计日志，记录 PVP 对局结算、反作弊检测、GM 工具操作、经济交易、社交审计等需要合规留存的高价值行为。
+
+notes:
+  - Project 固定为 sop-demo，保留期 730 天，主要供合规、仲裁、反作弊团队查询。
+  - 反作弊日志（cheat_detection_log / behavior_sequence_log）属于高敏感数据，规则阈值和算法细节不可对外披露。
+  - 聊天消息原文（message_log 中的 content 字段）属于用户隐私，查询需专门的审核权限，对外仅展示 content_hash 和 sensitive_words_hit。
+  - GM 操作（gm_op_log）每条记录必须包含非空的 operator_id 和 reason 字段。
+  - 封禁/解封等高风险操作不可由客服直接执行，必须经过反作弊团队或高级客服二次确认。
+
+query_step:
+  - 1. 所有查询在 Project sop-demo、Logstore game-audit-logstore 中执行, 查询时间范围默认为1天
+  - 2. 确认关键 ID：battle_id 是对局全链路的核心主键；cheat_event_id 是反作弊的核心主键；guild_id + war_id 是公会战的联合主键。
+  - 3. 选择查询：根据排查场景从下方 query_sqls 中选择对应命名查询，以 <占位符> 格式填入实际值后执行。
+
+fields:
+  # ── 对局/结算相关 ──
+  - name: log_type 枚举说明（对局生命周期）
+    desc: |
+      match_request_log：玩家发起匹配请求，关键字段：match_request_id / user_id / mode / mmr / region / queue_time_start
+      match_success_log：匹配成功并完成分组，关键字段：match_id / player_list / team_assignment / avg_mmr / mmr_spread
+      battle_start_log：对局正式开始，关键字段：battle_id / match_id / player_list / server_node_id
+      battle_behavior_log：对局中行为采样（非全量），关键字段：battle_id / user_id / action_type / position / ping_ms
+      battle_end_log：对局结束，关键字段：battle_id / battle_result_map / duration_ms / end_reason
+      settlement_log：结算（积分/段位更新），关键字段：battle_id / rank_points_before / rank_points_after / rank_change_reason / settlement_status
+      settlement_ack_log：客户端确认收到结算数据，关键字段：battle_id / user_id / ack_status / retry_count
+      matchmaking_algorithm_log：匹配算法执行过程，关键字段：match_id / mmr_spread / wait_time_s / fallback_used
+      afk_detection_log：挂机检测结果，关键字段：battle_id / user_id / afk_score / afk_threshold / action_taken
+
+  - name: battle_id
+    desc: 对局唯一 ID，对局全链路的核心追踪主键
+
+  - name: match_id
+    desc: 匹配成功 ID，关联匹配算法日志
+
+  - name: match_request_id
+    desc: 单个玩家的匹配请求 ID，关联该玩家从发起匹配到进入对局的完整请求链路
+
+  - name: battle_result
+    desc: 对局结果（win / lose / draw / abandoned），abandoned 表示中途放弃/掉线
+
+  - name: settlement_status
+    desc: |
+      结算状态，取值及含义：
+      success：结算成功，积分/段位已正常更新
+      pending：结算尚未完成，等待处理
+      failed：结算执行失败，积分保持原值，通常因服务端异常触发回滚
+      rollback：本局积分变更已被主动回滚（通常因服务端异常），积分恢复到对局前状态
+
+  - name: rank_change_reason
+    desc: |
+      积分变更原因，取值及含义：
+      normal：正常对局结算，积分按 ELO/Glicko2 模型计算
+      disconnect_penalty：掉线超过阈值（>120 秒）触发惩罚扣分
+      abandon_penalty：玩家主动放弃对局触发惩罚扣分
+      rollback：因服务端异常导致本局积分变更被回滚
+
+  - name: network_status_at_settle
+    desc: |
+      结算时玩家网络状态，取值及含义：
+      online：结算时在线，正常结算
+      offline：结算时已掉线，可能触发 disconnect_penalty 惩罚规则
+      reconnecting：结算时正在重连，积分处理按实际重连结果决定
+
+  - name: end_reason
+    desc: 对局结束原因（normal / disconnect / timeout / server_error）
+
+  - name: is_bot / ai_label
+    desc: |
+      is_bot：是否为官方机器人（true/false）
+      ai_label 取值及含义：
+      none：真实玩家账号，如行为异常则进行反作弊核查
+      training_bot：新手引导/训练模式使用的 AI 对手，仅出现在非排位模式
+      fill_bot：等待超时触发 fallback 后填充的 AI，排位模式中不允许出现；出现时须立即上报技术团队
+
+  - name: afk_detection
+    desc: 挂机检测结果（normal / suspected / confirmed_afk）
+
+  - name: afk_score
+    desc: 挂机评分（0~100），一般 ≥80 触发惩罚
+
+  - name: fallback_used
+    desc: 匹配是否使用了回退策略（等待超时后放宽 MMR 范围），true 表示本局匹配质量可能较差
+
+  - name: mmr_spread
+    desc: 本局 MMR 分布范围，>500 表示匹配质量较差
+
+  # ── 反作弊相关 ──
+  - name: log_type
+    desc: 反作弊相关取值：cheat_detection_log / behavior_sequence_log / appeal_log
+
+  - name: cheat_event_id
+    desc: 作弊检测事件唯一 ID
+
+  - name: rule_id / rule_name
+    desc: |
+      触发的规则 ID 及名称，各规则检测逻辑与阈值如下：
+      speed_hack_001（移速外挂检测）：移动速度超过角色最大移速阈值的 150%；阈值 move_speed > max_role_speed × 1.5
+      aim_bot_001（自动瞄准检测）：连续精准击打率超过统计异常值（99% 置信区间外）；阈值 headshot_rate > 0.95 AND sample_count > 50
+      wall_hack_001（透视外挂检测）：频繁提前预判视野外敌人位置；阈值 predict_before_visible / total_attack > 0.4
+      packet_manip_001（数据包篡改检测）：客户端上报数据与服务端计算不一致；阈值 data_consistency_error_rate > 0.1
+      auto_click_001（连点器/按键精灵）：操作间隔过于均匀，超出人类操作方差范围；阈值 input_interval_stddev < 5ms AND sample_count > 100
+
+  - name: detected_value / threshold
+    desc: 检测到的实际数值 vs 规则阈值，差距不足 10% 需重点评估是否为误判
+
+  - name: ml_score
+    desc: |
+      机器学习综合置信度评分（0~1），取值区间及对应处置：
+      < 0.6：正常，不触发处罚
+      0.6~0.75：低置信，记录日志并向玩家发送警告通知，不影响游戏
+      0.75~0.9：中置信，触发临时封禁（1~30 天）
+      > 0.9：高置信，触发永久封禁
+
+  - name: action
+    desc: |
+      执行的处罚动作（即处罚等级），取值及含义：
+      warn：警告——单次低置信度触发（ml_score 0.6~0.75），记录日志并通知玩家，不影响游戏
+      temp_ban：临时封禁——多次触发或中置信度（ml_score 0.75~0.9），封禁 1~30 天，期间无法登录
+      perm_ban：永久封禁——高置信度（ml_score > 0.9）或证据确凿，永久封禁账号并回收所有资产
+
+  - name: ban_duration
+    desc: 封禁时长（秒），-1 表示永久封禁
+
+  - name: memory_scan_result
+    desc: |
+      客户端内存扫描结果，取值及含义：
+      clean：内存干净，无外挂进程特征，单一规则触发时可疑为误判
+      suspicious：存在可疑进程，不能确定是外挂，需结合其他指标综合判断
+      infected：检测到已知外挂进程特征，证据较强，通常维持封禁
+
+  - name: appeal_status
+    desc: |
+      申诉状态流转，取值及含义：
+      appeal_created：申诉已提交，待分配审核
+      under_review：审核中，普通申诉 SLA 3 个工作日，永久封禁 5 个工作日
+      approved：申诉通过，账号已解封，同步补偿封禁期间损失
+      rejected：申诉拒绝，维持原处罚，玩家可走二次申诉通道（每账号最多 3 次）
+      escalated：已升级至高级审核，通常用于永久封禁等复杂案例
+
+  # ── 经济/GM 操作 ──
+  - name: log_type
+    desc: 经济/GM 相关取值：trade_log / gm_op_log
+
+  - name: op_type
+    desc: GM 操作类型（item_grant / item_revoke / ban / unban / currency_adjust 等）
+
+  - name: reason
+    desc: GM 操作原因，必填字段，为空时需上级审核
+
+  - name: before_state / after_state
+    desc: 操作前/后状态快照（JSON），用于还原 GM 操作影响
+
+  # ── 社交/举报/聊天/公会 ──
+  - name: log_type
+    desc: "社交相关取值：report_log / message_log / guild_war_participant_log / guild_war_battle_log / guild_member_change_log / guild_storage_log"
+
+  - name: log_type 枚举说明（社交/公会）
+    desc: |
+      report_log：举报事件，记录举报类型、审核状态、处置结果
+      message_log：聊天消息，content 字段加密，查阅原文需审核权限，对外仅展示 content_hash 和 sensitive_words_hit
+      guild_war_participant_log：公会战参战名单，记录每个成员的 damage_dealt / contribution_score / is_qualified_for_reward，是奖励资格核查的核心依据
+      guild_war_battle_log：公会战过程中伤害与贡献的实时统计，可按 sum 聚合计算成员总贡献
+      guild_member_change_log：公会成员变更（加入/离开/被踢出），记录执行操作的 operator_id 和 operator_role，用于核查踢人权限合法性
+      guild_storage_log：公会仓库物品存取变更流水；公会解散时产生 event_type=guild_disband_distribute 记录，按贡献值比例分配物品
+
+  # 举报相关
+  - name: report_id
+    desc: 举报唯一 ID，举报全链路追踪主键
+
+  - name: reporter_id / reported_id
+    desc: 举报人 user_id / 被举报人 user_id；reporter_id 对被举报方严格保密，不可对外披露
+
+  - name: report_type
+    desc: 举报类型（afk / chat_abuse / cheat / harassment / spam 等）
+
+  - name: review_status
+    desc: 举报审核状态（pending / auto_approved / auto_rejected / manual_pending / closed）
+
+  - name: action_taken
+    desc: 举报处置动作（warn / mute / temp_ban / perm_ban / no_action 等）；no_action 表示系统判定未违规
+
+  # 聊天相关
+  - name: message_id
+    desc: 聊天消息唯一 ID，用于定位具体消息上下文
+
+  - name: channel_type
+    desc: 聊天频道类型（world / guild / private / team）
+
+  - name: sender_id
+    desc: 消息发送者 user_id
+
+  - name: content_hash
+    desc: 聊天消息内容 Hash（脱敏存储），原文查询需审核权限，对外仅展示此字段
+
+  - name: sensitive_words_hit
+    desc: 命中的敏感词列表（脱敏），可对外展示，用于向玩家解释屏蔽原因
+
+  - name: block_reason
+    desc: 消息被屏蔽的原因（sensitive_word / manual_review / spam_filter 等）
+
+  # 公会相关
+  - name: operator_role
+    desc: 公会成员角色（leader / officer / member），决定操作权限范围；officer 不可踢出同级或 leader
+
+  - name: is_qualified_for_reward
+    desc: 公会战成员是否满足奖励领取条件（true/false）；false 的常见原因：战前 24h 内入会 / 伤害贡献不达标 / 结算前离会
+
+query_sqls:
+  - 查询玩家近期对局结果，确认服务端记录的胜负与玩家认知是否一致。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="battle_end_log"
+    AND timestamp >= <time_range_start> AND timestamp <= <time_range_end>
+    | project battle_id, battle_result, duration_ms, end_reason, timestamp
+    | sort by timestamp desc | limit 5
+    ```
+    notes:
+      - 参数：time_range 填入玩家反馈问题发生的时间范围
+      - 结果分析
+        - battle_result 与玩家说法不符：以服务端记录为准，向玩家解释
+        - end_reason=disconnect / timeout：掉线/超时结束，可能触发特殊积分规则
+        - duration_ms 极短（< 300000 ms）：对局不足 5 分钟，可能被判定为无效局
+
+  - 查询指定对局的结算记录，排查赢了却掉段/积分异常问题。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="settlement_log" AND battle_id="<battle_id>"
+    | project battle_id, battle_result, rank_points_before, rank_points_after,
+              rank_change_reason, settlement_status, network_status_at_settle, timestamp
+    ```
+    notes:
+      - 结果分析
+        - settlement_status=rollback：本局积分变更已被回滚，通常因服务端异常，属系统问题
+        - settlement_status=failed：结算失败后触发回滚，积分保持原值
+        - network_status_at_settle=offline + rank_change_reason=disconnect_penalty：掉线惩罚，正常规则
+        - rank_change_reason=abandon_penalty：玩家主动放弃，正常规则
+
+  - 查询结算数据同步状态，确认客户端是否成功接收结算结果。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="settlement_ack_log" AND battle_id="<battle_id>"
+    | project ack_status, ack_timestamp, retry_count, sync_result
+    ```
+    notes:
+      - 结果分析
+        - ack_failed：客户端未成功接收结算数据，下次登录时会重新同步，玩家可能看到历史状态
+
+  - 查询对局玩家列表，核查是否存在机器人填充。
+    ```tpl_query
+    log_type="match_success_log" AND battle_id="<battle_id>"
+    | project match_id, player_list, is_bot_fill, bot_count, timestamp
+    ```
+    notes:
+      - 部分游戏模式允许在匹配人数不足时填充 AI（fill_bot），这是正常设计行为；排位模式不允许
+      - 结果分析
+        - is_bot_fill=true + 非排位模式：官方 AI 填充，属游戏设计，向玩家解释
+        - is_bot_fill=true + 排位模式：不允许出现，立即上报技术团队
+
+  - 查询可疑玩家的机器人标记，区分官方机器人与真实玩家。
+    ```tpl_query
+    user_id="<suspect_user_id>" AND log_type="match_request_log"
+    AND battle_id="<battle_id>"
+    | project user_id, is_bot, ai_label, mmr, account_age_days
+    ```
+    notes:
+      - 结果分析
+        - is_bot=true + ai_label=fill_bot：官方填充机器人，属游戏设计
+        - is_bot=true + ai_label=training_bot：新手训练机器人
+        - is_bot=false：真实玩家账号，如行为异常则进行反作弊核查
+
+  - 查询匹配算法过程，分析匹配质量差的原因。
+    ```tpl_query
+    log_type="matchmaking_algorithm_log" AND match_id="<match_id>"
+    | project player_list, mmr_distribution, mmr_spread, wait_time_s, fallback_used, timestamp
+    ```
+    notes:
+      - 结果分析
+        - fallback_used=true：等待超时后放宽了 MMR 范围，是低峰期正常策略
+        - mmr_spread > 500：本局匹配质量较差，告知玩家是匹配系统低峰期策略，非 Bug
+
+  - 分析对局内挂机行为数据，量化挂机特征指标。
+    ```tpl_query
+    user_id="<afk_user_id>" AND log_type="battle_behavior_log"
+    AND battle_id="<battle_id>"
+    | stats sum(move_distance) as total_distance,
+            count_if(action_type="idle") as idle_count,
+            max(continuous_idle_seconds) as max_idle_sec,
+            count() as total_actions
+    ```
+    notes:
+      - 结果分析
+        - max_idle_sec > 120 且 total_distance < 50：强挂机特征
+        - idle_count / total_actions > 0.8：操作率极低，符合挂机定义
+        - 以上均未达阈值：系统未触发惩罚属正常，引导玩家提交举报
+
+  - 查询反挂机检测结果，确认系统是否识别并处置挂机行为。
+    ```tpl_query
+    user_id="<afk_user_id>" AND log_type="afk_detection_log"
+    AND battle_id="<battle_id>"
+    | project afk_detection, afk_score, afk_threshold, action_taken, timestamp
+    ```
+    notes:
+      - 结果分析
+        - afk_score 未达 afk_threshold（一般 80~100）：未触发惩罚，告知玩家累计次数达阈值才会处置
+        - action_taken=penalize：系统已处置，告知玩家结果将在 24 小时内通知
+        - afk_detection_log 无记录：该局时长过短，未进入挂机检测窗口，正常
+        - afk_score 未达阈值但玩家有移动行为：战斗贡献分极低也可能被判挂机，需结合 battle_behavior_log 综合判断
+
+  - 分析可疑账号行为特征（机器人检测），通过操作间隔标准差判断是否为机器人。
+    ```tpl_query
+    user_id="<suspect_user_id>" AND log_type="battle_behavior_log"
+    AND battle_id="<battle_id>"
+    | stats avg(action_interval_ms) as avg_interval,
+            stddev(action_interval_ms) as stddev_interval,
+            count() as action_count
+    ```
+    notes:
+      - 参数：suspect_user_id 填入可疑玩家 ID，battle_id 填入对局 ID
+      - 结果分析
+        - stddev_interval 极低（< 5ms）：操作间隔高度均匀，机器人特征，需结合设备类型综合判断
+        - 正常人类操作的 stddev_interval 通常较高（行为不规律），机器人则高度规律
+        - action_count 过少：对局内行为采样数量不足，结论可信度低
+
+  - 查询指定对局的挂机举报记录，确认举报是否提交及处理状态。
+    ```tpl_query
+    battle_id="<battle_id>" AND log_type="report_log"
+    AND report_type="afk"
+    | project reporter_id, reported_id, report_type, submit_time, review_status, action_taken
+    ```
+    notes:
+      - 结果分析
+        - review_status=pending：举报待处理，告知玩家通常 24 小时内处理
+        - action_taken=penalize：系统已根据举报处置被举报玩家
+        - 无记录：该对局内未提交过挂机举报，引导玩家补充举报
+
+  - 查询玩家 30 天内累计挂机次数，判断是否已达加重处罚阈值。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="afk_detection_log"
+    AND afk_detection="confirmed_afk"
+    AND timestamp >= <30_days_ago>
+    | stats count() as afk_count_30d
+    ```
+    notes:
+      - 结果分析：累计 afk_count_30d 达到阈值（具体值查运营政策）将触发更长禁赛
+
+  - 查询封禁处罚记录（反作弊申诉核查），获取触发封禁的规则和数值。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="cheat_detection_log"
+    AND action IN ("temp_ban", "perm_ban")
+    | sort by timestamp desc | limit 10
+    | project cheat_event_id, rule_id, rule_name, detected_value, threshold,
+              ml_score, confidence, action, ban_duration, device_id, ip_address, timestamp
+    ```
+    notes:
+      - 参数：user_id 填入申诉玩家 ID
+      - 结果分析
+        - detected_value 超出 threshold 不足 10%：可疑为误判，结合 memory_scan_result 综合判断
+        - ml_score < 0.7 且 memory_scan_result=clean 且无历史处罚：建议解封并补偿损失
+        - ml_score > 0.9 或 memory_scan_result=infected 或多规则同时触发：维持封禁
+
+  - 查询玩家历史处罚汇总，评估申诉可信度。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="cheat_detection_log"
+    AND timestamp >= <365_days_ago>
+    | stats count() as total_events,
+            count_if(action="warn") as warn_count,
+            count_if(action="temp_ban") as temp_ban_count,
+            count_if(action="perm_ban") as perm_ban_count
+    ```
+    notes:
+      - 结果分析：首次封禁 + 无历史记录 + 高消费玩家，申诉可信度更高，可以适当从宽处理
+
+  - 查询行为序列（误判核查），获取内存扫描结果及操作数据用于佐证。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="behavior_sequence_log"
+    AND battle_id="<battle_id>"
+    | project move_speed_samples, click_frequency_samples, input_interval_samples,
+              headshot_count, total_attack_count, memory_scan_result
+    ```
+    notes:
+      - 结果分析
+        - memory_scan_result=infected：内存中检测到外挂特征，证据较强，维持封禁
+        - memory_scan_result=clean + 单一规则触发：可能是服务端规则误判，建议解封
+        - input_interval_samples 标准差极低（< 5ms）：高度规律操作，结合设备类型判断是否合法宏
+
+  - 查询同设备封禁账号数量，辅助判断设备是否是作弊设备。
+    ```tpl_query
+    device_id="<device_id>" AND log_type="cheat_detection_log"
+    AND action IN ("temp_ban", "perm_ban")
+    | stats count() as ban_count, dc(user_id) as banned_account_count
+    ```
+    notes:
+      - 结果分析
+        - banned_account_count > 3：该设备存在多个封禁账号，高风险设备，但网吧/公共设备需排除
+
+  - 查询申诉状态，告知玩家当前审核进展。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="appeal_log"
+    | sort by timestamp desc | limit 10
+    | project appeal_id, cheat_event_id, appeal_status, submit_time,
+              reviewer_id, review_time, review_result, review_note
+    ```
+    notes:
+      - 结果分析
+        - appeal_status=under_review + 已超 3 工作日：标记为需要升级处理
+        - appeal_status=escalated：复杂案例，已升级高级审核（永久封禁 SLA 为 5 工作日）
+
+  - 查询物品交易记录，确认物品是否通过交易行转让。
+    ```tpl_query
+    user_id="<user_id>" AND log_type="trade_log"
+    AND item_uuid="<item_uuid>"
+    | project txn_id, buyer_id, seller_id, item_uuid, price, trade_time, trade_result
+    ```
+    notes:
+      - 结果分析
+        - trade_result=success：玩家自行卖出，提示玩家查看交易收益
+        - 已有买家购入：无法直接回滚，需走特殊处理流程
+
+  - 查询 GM 操作记录，核查是否有非预期的 GM 强制操作。
+    ```tpl_query
+    log_type="gm_op_log" AND target_user_id="<user_id>"
+    | project timestamp, operator_id, op_type, reason, item_uuid, before_state, after_state
+    ```
+    notes:
+      - 结果分析
+        - reason 字段为空或不合理：需上级审核，要求操作人补充说明
+        - before_state / after_state 可还原 GM 操作影响，用于判断是否需要回滚
+
+  - 查询公会战参战资格，核实玩家是否满足奖励领取条件。
+    ```tpl_query
+    guild_id="<guild_id>" AND war_id="<guild_war_id>"
+    AND log_type="guild_war_participant_log"
+    | project member_id, join_time, damage_dealt, contribution_score, is_qualified_for_reward
+    ```
+    notes:
+      - 结果分析
+        - is_qualified_for_reward=false 常见原因：战前 24 小时内加入公会 / 贡献分未达阈值 / 结算前离会
+
+  - 查询公会战伤害与贡献统计，核对玩家伤害记录是否与奖励资格一致。
+    ```tpl_query
+    guild_id="<guild_id>" AND war_id="<war_id>"
+    AND log_type="guild_war_battle_log"
+    | stats sum(damage_dealt) as total_damage, sum(contribution_score) as total_contribution
+      by member_id
+    | sort by total_damage desc
+    ```
+    notes:
+      - 参数：war_id 填入公会战 ID
+      - 结果分析
+        - 对比 guild_war_participant_log 中的 is_qualified_for_reward，确认伤害与奖励资格是否一致
+        - 若伤害数据与玩家记忆明显不符，可能是服务端与客户端数据同步问题，上报技术团队
+
+  - 查询被举报玩家的历史违规记录，评估违规严重程度。
+    ```tpl_query
+    reported_id="<user_id>" AND log_type="report_log"
+    AND action_taken != "no_action"
+    AND timestamp >= <90_days_ago>
+    | stats count() as violation_count,
+            latest(timestamp) as last_violation_time
+    ```
+    notes:
+      - 参数：user_id 填入被举报玩家 ID
+      - 结果分析
+        - violation_count 累计增多：表明该玩家有重复违规行为，可加重处罚考量
+        - 惩罚升级规则：首次警告 → 多次禁言 → 严重/多次违规封号
+
+  - 查询举报处理记录，核查举报状态及处置结果。
+    ```tpl_query
+    report_id="<report_id>" AND log_type="report_log"
+    | project reporter_id, reported_id, report_type, submit_time,
+              review_status, action_taken, reviewer_id, review_time, review_note
+    ```
+    notes:
+      - 结果分析
+        - review_status=pending 且已超 24 小时：标记为需要人工介入
+        - action_taken=no_action：系统判定未违规，可向举报人解释审核结论
+
+  - 查询聊天消息上下文（需审核权限），核实举报内容是否属实。
+    ```tpl_query
+    channel_id="<channel_id>" AND log_type="message_log"
+    AND timestamp >= <message_timestamp - 300000>
+    AND timestamp <= <message_timestamp + 300000>
+    | project message_id, sender_id, timestamp, content_hash, sensitive_words_hit, block_reason
+    | sort by timestamp asc
+    ```
+    notes:
+      - 此查询需要人工复核人员权限，content 原文字段加密
+      - 结果分析
+        - sensitive_words_hit 有误触发（正常词汇被识别为敏感词）：解除禁言，将词加入白名单
+        - block_reason 说明自动屏蔽原因，结合 sensitive_words_hit 综合判断
+
+  - 查询公会成员变更记录，核实踢人/退会操作的合法性。
+    ```tpl_query
+    guild_id="<guild_id>" AND log_type="guild_member_change_log"
+    AND member_id="<user_id>"
+    | sort by timestamp desc | limit 10
+    | project event_type, operator_id, operator_role, reason, timestamp
+    ```
+    notes:
+      - operator_id：执行操作的成员 user_id；operator_role：操作者公会角色（leader/officer/member）
+      - 结果分析
+        - operator_role=officer 踢出了另一个 officer 或 leader：权限越级，属系统 Bug，上报技术团队
+        - reason 字段为空：需要求操作人补充原因
+
+  - 查询公会仓库变更记录，还原物品操作历史。
+    ```tpl_query
+    guild_id="<guild_id>" AND log_type="guild_storage_log"
+    AND timestamp >= <time_range_start>
+    | project operator_id, item_uuid, item_name, change_type, delta, event_type, timestamp
+    ```
+    notes:
+      - 结果分析
+        - event_type=guild_disband_distribute：公会解散时按贡献值比例分配，解散前已离会的成员不参与分配
