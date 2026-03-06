@@ -58,6 +58,8 @@ type configUIResponse struct {
 	Global        configUIGlobal     `json:"global"`
 	Auth          configUIAuth       `json:"auth"`
 	DingTalk      []configUIDingTalk `json:"dingtalk"`
+	Feishu        []configUIFeishu   `json:"feishu"`
+	WeCom         []configUIWeCom    `json:"wecom"`
 	OpenAIEnabled bool               `json:"openaiEnabled"`
 	OpenAI        configUIOpenAI     `json:"openai"`
 }
@@ -113,6 +115,34 @@ type configUIDingTalk struct {
 	ConversationRoutes   []configUIConversationRoute  `json:"conversationRoutes"`
 }
 
+type configUIFeishu struct {
+	Enabled           bool     `json:"enabled"`
+	Name              string   `json:"name"`
+	AppID             string   `json:"appId"`
+	AppSecret         string   `json:"appSecret"`
+	VerificationToken string   `json:"verificationToken"`
+	EventEncryptKey   string   `json:"eventEncryptKey"`
+	EmployeeName      string   `json:"employeeName"`
+	ConciseReply      bool     `json:"conciseReply"`
+	AllowedUsers      []string `json:"allowedUsers"`
+	AllowedChats      []string `json:"allowedChats"`
+}
+
+type configUIWeCom struct {
+	Enabled        bool     `json:"enabled"`
+	Name           string   `json:"name"`
+	CorpID         string   `json:"corpId"`
+	AgentID        int      `json:"agentId"`
+	Secret         string   `json:"secret"`
+	Token          string   `json:"token"`
+	EncodingAESKey string   `json:"encodingAESKey"`
+	CallbackPort   int      `json:"callbackPort"`
+	CallbackPath   string   `json:"callbackPath"`
+	EmployeeName   string   `json:"employeeName"`
+	ConciseReply   bool     `json:"conciseReply"`
+	AllowedUsers   []string `json:"allowedUsers"`
+}
+
 type configUIOpenAI struct {
 	APIKeys []string `json:"apiKeys"`
 }
@@ -127,6 +157,8 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 		// 配置文件不存在时返回空配置，让前端呈现空表单供用户填写
 		c.JSON(http.StatusOK, configUIResponse{
 			DingTalk: []configUIDingTalk{},
+			Feishu:   []configUIFeishu{},
+			WeCom:    []configUIWeCom{},
 			OpenAI:   configUIOpenAI{APIKeys: []string{}},
 		})
 		return
@@ -195,6 +227,50 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 		}
 	} else {
 		resp.DingTalk = []configUIDingTalk{}
+	}
+
+	// 飞书配置
+	if cfg.Channels != nil && len(cfg.Channels.Feishu) > 0 {
+		resp.Feishu = make([]configUIFeishu, len(cfg.Channels.Feishu))
+		for i, ft := range cfg.Channels.Feishu {
+			resp.Feishu[i] = configUIFeishu{
+				Enabled:           ft.Enabled,
+				Name:              ft.Name,
+				AppID:             ft.AppID,
+				AppSecret:         ft.AppSecret,
+				VerificationToken: ft.VerificationToken,
+				EventEncryptKey:   ft.EventEncryptKey,
+				EmployeeName:      ft.EmployeeName,
+				ConciseReply:      ft.ConciseReply,
+				AllowedUsers:      ft.AllowedUsers,
+				AllowedChats:      ft.AllowedChats,
+			}
+		}
+	} else {
+		resp.Feishu = []configUIFeishu{}
+	}
+
+	// 企业微信配置
+	if cfg.Channels != nil && len(cfg.Channels.WeCom) > 0 {
+		resp.WeCom = make([]configUIWeCom, len(cfg.Channels.WeCom))
+		for i, wc := range cfg.Channels.WeCom {
+			resp.WeCom[i] = configUIWeCom{
+				Enabled:        wc.Enabled,
+				Name:           wc.Name,
+				CorpID:         wc.CorpID,
+				AgentID:        wc.AgentID,
+				Secret:         wc.Secret,
+				Token:          wc.Token,
+				EncodingAESKey: wc.EncodingAESKey,
+				CallbackPort:   wc.CallbackPort,
+				CallbackPath:   wc.CallbackPath,
+				EmployeeName:   wc.EmployeeName,
+				ConciseReply:   wc.ConciseReply,
+				AllowedUsers:   wc.AllowedUsers,
+			}
+		}
+	} else {
+		resp.WeCom = []configUIWeCom{}
 	}
 
 	// 始终读取 OpenAI 字段（即使 enabled=false，密钥也应保留显示）
@@ -286,6 +362,68 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 					AllowedDirectUsers:   dt.AllowedDirectUsers,
 					AllowedConversations: dt.AllowedConversations,
 					ConversationRoutes:   routes,
+				})
+			}
+		}
+	}
+
+	// 飞书配置
+	if len(req.Feishu) > 0 {
+		if cfg.Channels == nil {
+			cfg.Channels = &config.ChannelsConfig{}
+		}
+		cfg.Channels.Feishu = make([]config.FeishuConfig, 0, len(req.Feishu))
+		for _, ft := range req.Feishu {
+			if ft.AppID != "" || ft.AppSecret != "" || ft.EmployeeName != "" {
+				allowedUsers := ft.AllowedUsers
+				if allowedUsers == nil {
+					allowedUsers = []string{}
+				}
+				allowedChats := ft.AllowedChats
+				if allowedChats == nil {
+					allowedChats = []string{}
+				}
+				cfg.Channels.Feishu = append(cfg.Channels.Feishu, config.FeishuConfig{
+					Enabled:           ft.Enabled,
+					Name:              ft.Name,
+					AppID:             ft.AppID,
+					AppSecret:         ft.AppSecret,
+					VerificationToken: ft.VerificationToken,
+					EventEncryptKey:   ft.EventEncryptKey,
+					EmployeeName:      ft.EmployeeName,
+					ConciseReply:      ft.ConciseReply,
+					AllowedUsers:      allowedUsers,
+					AllowedChats:      allowedChats,
+				})
+			}
+		}
+	}
+
+	// 企业微信配置
+	if len(req.WeCom) > 0 {
+		if cfg.Channels == nil {
+			cfg.Channels = &config.ChannelsConfig{}
+		}
+		cfg.Channels.WeCom = make([]config.WeComConfig, 0, len(req.WeCom))
+		for _, wc := range req.WeCom {
+			if wc.CorpID != "" || wc.Secret != "" || wc.EmployeeName != "" {
+				allowedUsers := wc.AllowedUsers
+				if allowedUsers == nil {
+					allowedUsers = []string{}
+				}
+				cfg.Channels.WeCom = append(cfg.Channels.WeCom, config.WeComConfig{
+					Enabled:        wc.Enabled,
+					Name:           wc.Name,
+					CorpID:         wc.CorpID,
+					AgentID:        wc.AgentID,
+					Secret:         wc.Secret,
+					Token:          wc.Token,
+					EncodingAESKey: wc.EncodingAESKey,
+					CallbackPort:   wc.CallbackPort,
+					CallbackPath:   wc.CallbackPath,
+					EmployeeName:   wc.EmployeeName,
+					ConciseReply:   wc.ConciseReply,
+					AllowedUsers:   allowedUsers,
 				})
 			}
 		}

@@ -32,11 +32,10 @@ type Config struct {
 type ChannelsConfig struct {
 	// 支持多个钉钉机器人，每个对接一个数字员工（clientId 唯一标识一个实例）
 	DingTalk []DingTalkConfig `yaml:"dingtalk,omitempty"`
-	// 预留扩展字段（未实现）：
-	// WeCom   []WeComConfig   `yaml:"wecom,omitempty"`
-	// Slack   []SlackConfig   `yaml:"slack,omitempty"`
-	// Lark    []LarkConfig    `yaml:"lark,omitempty"`
-	// Webhook []WebhookConfig `yaml:"webhook,omitempty"`
+	// 飞书机器人（WebSocket 长连接，无需公网 IP）
+	Feishu []FeishuConfig `yaml:"feishu,omitempty"`
+	// 企业微信机器人（HTTP 回调，需要公网 IP 或内网穿透）
+	WeCom []WeComConfig `yaml:"wecom,omitempty"`
 }
 
 // OpenAICompatConfig OpenAI 兼容接口配置
@@ -73,12 +72,87 @@ type DingTalkConfig struct {
 	ConversationRoutes []ConversationRoute `yaml:"conversationRoutes,omitempty"`
 }
 
+// FeishuConfig 飞书机器人配置
+type FeishuConfig struct {
+	// 是否启用飞书机器人
+	Enabled bool `yaml:"enabled"`
+	// 机器人显示名称（仅用于标识）
+	Name string `yaml:"name,omitempty"`
+	// 飞书应用 App ID
+	AppID string `yaml:"appId"`
+	// 飞书应用 App Secret
+	AppSecret string `yaml:"appSecret"`
+	// 验证令牌（WebSocket 模式可留空）
+	VerificationToken string `yaml:"verificationToken,omitempty"`
+	// 消息加密密钥（WebSocket 模式可留空）
+	EventEncryptKey string `yaml:"eventEncryptKey,omitempty"`
+	// 默认数字员工名称
+	EmployeeName string `yaml:"employeeName"`
+	// 开启后回复简短，适合 IM 阅读
+	ConciseReply bool `yaml:"conciseReply,omitempty"`
+	// 用户白名单（飞书 open_id）；为空时允许所有用户
+	AllowedUsers []string `yaml:"allowedUsers,omitempty"`
+	// 群聊白名单（飞书 chat_id）；为空时允许所有群聊
+	AllowedChats []string `yaml:"allowedChats,omitempty"`
+}
+
+// WeComConfig 企业微信机器人配置
+type WeComConfig struct {
+	// 是否启用企业微信机器人
+	Enabled bool `yaml:"enabled"`
+	// 机器人显示名称（仅用于标识）
+	Name string `yaml:"name,omitempty"`
+	// 企业 ID
+	CorpID string `yaml:"corpId"`
+	// 应用 AgentID
+	AgentID int `yaml:"agentId"`
+	// 应用 Secret
+	Secret string `yaml:"secret"`
+	// 回调 Token（用于验证消息来源）
+	Token string `yaml:"token"`
+	// 消息加密密钥（43 位字符）
+	EncodingAESKey string `yaml:"encodingAESKey"`
+	// 回调服务端口（默认 8090，与主服务分开）
+	CallbackPort int `yaml:"callbackPort,omitempty"`
+	// 回调路径（必须以 /wecom/ 开头，默认 /wecom/callback）
+	CallbackPath string `yaml:"callbackPath,omitempty"`
+	// 默认数字员工名称
+	EmployeeName string `yaml:"employeeName"`
+	// 开启后回复简短，适合 IM 阅读
+	ConciseReply bool `yaml:"conciseReply,omitempty"`
+	// 用户白名单（企业微信 userid）；为空时允许所有用户
+	AllowedUsers []string `yaml:"allowedUsers,omitempty"`
+}
+
 // CredsEqual 判断凭据和员工名是否与另一个配置相同（用于热重载时判断是否需要重启）
 func (d *DingTalkConfig) CredsEqual(other *DingTalkConfig) bool {
 	if other == nil {
 		return false
 	}
 	return d.ClientSecret == other.ClientSecret && d.EmployeeName == other.EmployeeName
+}
+
+// CredsEqual 判断飞书凭据是否与另一个配置相同
+func (f *FeishuConfig) CredsEqual(other *FeishuConfig) bool {
+	if other == nil {
+		return false
+	}
+	return f.AppID == other.AppID && f.AppSecret == other.AppSecret && f.EmployeeName == other.EmployeeName
+}
+
+// CredsEqual 判断企业微信凭据是否与另一个配置相同
+func (w *WeComConfig) CredsEqual(other *WeComConfig) bool {
+	if other == nil {
+		return false
+	}
+	return w.CorpID == other.CorpID &&
+		w.Secret == other.Secret &&
+		w.Token == other.Token &&
+		w.EncodingAESKey == other.EncodingAESKey &&
+		w.AgentID == other.AgentID &&
+		w.CallbackPort == other.CallbackPort &&
+		w.CallbackPath == other.CallbackPath &&
+		w.EmployeeName == other.EmployeeName
 }
 
 // GlobalConfig 全局配置
@@ -294,6 +368,16 @@ func (c *Config) expandEnvVars() {
 			c.Channels.DingTalk[i].ClientId = expandEnvVar(c.Channels.DingTalk[i].ClientId)
 			c.Channels.DingTalk[i].ClientSecret = expandEnvVar(c.Channels.DingTalk[i].ClientSecret)
 			c.Channels.DingTalk[i].EmployeeName = expandEnvVar(c.Channels.DingTalk[i].EmployeeName)
+		}
+		for i := range c.Channels.Feishu {
+			c.Channels.Feishu[i].AppID = expandEnvVar(c.Channels.Feishu[i].AppID)
+			c.Channels.Feishu[i].AppSecret = expandEnvVar(c.Channels.Feishu[i].AppSecret)
+			c.Channels.Feishu[i].EmployeeName = expandEnvVar(c.Channels.Feishu[i].EmployeeName)
+		}
+		for i := range c.Channels.WeCom {
+			c.Channels.WeCom[i].CorpID = expandEnvVar(c.Channels.WeCom[i].CorpID)
+			c.Channels.WeCom[i].Secret = expandEnvVar(c.Channels.WeCom[i].Secret)
+			c.Channels.WeCom[i].EmployeeName = expandEnvVar(c.Channels.WeCom[i].EmployeeName)
 		}
 	}
 

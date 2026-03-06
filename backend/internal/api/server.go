@@ -14,6 +14,8 @@ import (
 	"sop-chat/internal/config"
 	"sop-chat/internal/dingtalk"
 	"sop-chat/internal/embed"
+	"sop-chat/internal/feishu"
+	"sop-chat/internal/wecom"
 	"sop-chat/pkg/sopchat"
 
 	cmsclient "github.com/alibabacloud-go/cms-20240330/v6/client"
@@ -39,6 +41,14 @@ type Server struct {
 	// 钉钉机器人生命周期管理（支持多实例热启停，keyed by clientId）
 	dingtalkMu   sync.Mutex
 	dingtalkBots map[string]*dingtalk.Bot
+
+	// 飞书机器人生命周期管理（keyed by appId）
+	feishuMu   sync.Mutex
+	feishuBots map[string]*feishu.Bot
+
+	// 企业微信机器人生命周期管理（keyed by corpId:agentId）
+	wecomMu   sync.Mutex
+	wecomBots map[string]*wecom.Bot
 }
 
 // generateConfigUIToken 生成随机的配置 UI 访问令牌
@@ -81,12 +91,23 @@ func NewServer(cfg *client.Config, globalConfig *config.Config, configPath strin
 	// 注册路由
 	server.setupRoutes()
 
-	// 启动所有已启用的钉钉机器人
-	if globalConfig != nil && globalConfig.Channels != nil && len(globalConfig.Channels.DingTalk) > 0 {
-		if cmsClientCfg, err := globalConfig.ToClientConfig(); err == nil {
-			server.syncDingTalkBots(globalConfig.Channels.DingTalk, cmsClientCfg)
+	if globalConfig != nil && globalConfig.Channels != nil {
+		cmsClientCfg, cmsErr := globalConfig.ToClientConfig()
+		if cmsErr != nil {
+			log.Printf("警告: 无法获取 CMS 配置，消息渠道机器人未启动: %v", cmsErr)
 		} else {
-			log.Printf("警告: 无法获取 CMS 配置，钉钉机器人未启动: %v", err)
+			// 启动钉钉机器人
+			if len(globalConfig.Channels.DingTalk) > 0 {
+				server.syncDingTalkBots(globalConfig.Channels.DingTalk, cmsClientCfg)
+			}
+			// 启动飞书机器人
+			if len(globalConfig.Channels.Feishu) > 0 {
+				server.syncFeishuBots(globalConfig.Channels.Feishu, cmsClientCfg)
+			}
+			// 启动企业微信机器人
+			if len(globalConfig.Channels.WeCom) > 0 {
+				server.syncWeComBots(globalConfig.Channels.WeCom, cmsClientCfg)
+			}
 		}
 	}
 
@@ -230,6 +251,9 @@ func (s *Server) setupRoutes() {
 		openaiV1.GET("/models", s.handleOpenAIListModels)
 		openaiV1.POST("/chat/completions", s.handleOpenAIChatCompletions)
 	}
+
+	// 企业微信回调（统一入口，内部按路径分发）
+	s.router.Any("/wecom/*path", s.handleWeComCallback)
 
 	// 配置管理 UI（使用独立的 token 认证，与业务认证系统隔离）
 	s.router.GET("/config-ui", s.handleConfigUIPage)
@@ -375,6 +399,163 @@ func (s *Server) stopAllDingTalkBots() {
 	}
 }
 
+// syncFeishuBots 将运行中的飞书机器人与新配置列表对齐
+func (s *Server) syncFeishuBots(newConfigs []config.FeishuConfig, cmsConfig *config.ClientConfig) {
+	s.feishuMu.Lock()
+	defer s.feishuMu.Unlock()
+
+	if s.feishuBots == nil {
+		s.feishuBots = make(map[string]*feishu.Bot)
+	}
+
+	newEnabled := make(map[string]config.FeishuConfig)
+	for _, ft := range newConfigs {
+		if ft.Enabled && ft.AppID != "" && ft.AppSecret != "" && ft.EmployeeName != "" {
+			newEnabled[ft.AppID] = ft
+		}
+	}
+
+	for appID, bot := range s.feishuBots {
+		if _, ok := newEnabled[appID]; !ok {
+			log.Printf("停止飞书机器人: appId=%s", appID)
+			bot.Stop()
+			delete(s.feishuBots, appID)
+		}
+	}
+
+	for appID, ftCfg := range newEnabled {
+		ftCopy := ftCfg
+		if existing, ok := s.feishuBots[appID]; ok {
+			existingCfg := existing.Config()
+			if existingCfg.AppSecret != ftCopy.AppSecret || existingCfg.EmployeeName != ftCopy.EmployeeName {
+				log.Printf("重启飞书机器人（配置变更）: appId=%s", appID)
+				existing.Stop()
+				delete(s.feishuBots, appID)
+			} else {
+				existing.UpdateConfig(&ftCopy)
+				// 注册/更新 WeCom 回调路由
+				s.registerFeishuRoutes(appID, existing)
+				continue
+			}
+		}
+		log.Printf("启动飞书机器人: appId=%s, employee=%s", appID, ftCopy.EmployeeName)
+		bot := feishu.NewBot(&ftCopy, cmsConfig)
+		if err := bot.Start(); err != nil {
+			log.Printf("警告: 飞书机器人启动失败 (appId=%s): %v", appID, err)
+			continue
+		}
+		s.feishuBots[appID] = bot
+		s.registerFeishuRoutes(appID, bot)
+	}
+}
+
+// registerFeishuRoutes 飞书使用 WebSocket，无需注册 HTTP 路由（占位，供将来扩展）
+func (s *Server) registerFeishuRoutes(_ string, _ *feishu.Bot) {}
+
+// stopAllFeishuBots 停止所有运行中的飞书机器人
+func (s *Server) stopAllFeishuBots() {
+	s.feishuMu.Lock()
+	defer s.feishuMu.Unlock()
+	for appID, bot := range s.feishuBots {
+		bot.Stop()
+		delete(s.feishuBots, appID)
+	}
+}
+
+// syncWeComBots 将运行中的企业微信机器人与新配置列表对齐
+func (s *Server) syncWeComBots(newConfigs []config.WeComConfig, cmsConfig *config.ClientConfig) {
+	s.wecomMu.Lock()
+	defer s.wecomMu.Unlock()
+
+	if s.wecomBots == nil {
+		s.wecomBots = make(map[string]*wecom.Bot)
+	}
+
+	newEnabled := make(map[string]config.WeComConfig)
+	for _, wc := range newConfigs {
+		if wc.Enabled && wc.CorpID != "" && wc.Secret != "" && wc.Token != "" &&
+			wc.EncodingAESKey != "" && wc.AgentID != 0 && wc.EmployeeName != "" {
+			key := fmt.Sprintf("%s:%d", wc.CorpID, wc.AgentID)
+			newEnabled[key] = wc
+		}
+	}
+
+	for key, bot := range s.wecomBots {
+		if _, ok := newEnabled[key]; !ok {
+			log.Printf("停止企业微信机器人: %s", key)
+			delete(s.wecomBots, key)
+		}
+		_ = bot
+	}
+
+	for key, wcCfg := range newEnabled {
+		wcCopy := wcCfg
+		if existing, ok := s.wecomBots[key]; ok {
+			existingCfg := existing.Config()
+			if !existingCfg.CredsEqual(&wcCopy) {
+				log.Printf("重建企业微信机器人（配置变更）: %s", key)
+				delete(s.wecomBots, key)
+			} else {
+				existing.UpdateConfig(&wcCopy)
+				s.registerWeComRoutes(key, existing)
+				continue
+			}
+		}
+		log.Printf("启动企业微信机器人: corpId=%s agentId=%d employee=%s", wcCopy.CorpID, wcCopy.AgentID, wcCopy.EmployeeName)
+		bot, err := wecom.NewBot(&wcCopy, cmsConfig)
+		if err != nil {
+			log.Printf("警告: 企业微信机器人初始化失败 (%s): %v", key, err)
+			continue
+		}
+		s.wecomBots[key] = bot
+		s.registerWeComRoutes(key, bot)
+	}
+}
+
+// registerWeComRoutes 记录企业微信回调路由（路由通过 handleWeComCallback 分发）
+func (s *Server) registerWeComRoutes(key string, bot *wecom.Bot) {
+	cfg := bot.Config()
+	path := cfg.CallbackPath
+	if path == "" {
+		path = "/wecom/callback"
+	}
+	log.Printf("[WeCom] 回调路由已就绪: %s (key=%s)", path, key)
+}
+
+// handleWeComCallback 统一处理企业微信回调，根据路径分发到对应机器人
+func (s *Server) handleWeComCallback(c *gin.Context) {
+	reqPath := c.Request.URL.Path
+	s.wecomMu.Lock()
+	var matched *wecom.Bot
+	for _, bot := range s.wecomBots {
+		cfg := bot.Config()
+		p := cfg.CallbackPath
+		if p == "" {
+			p = "/wecom/callback"
+		}
+		if p == reqPath {
+			matched = bot
+			break
+		}
+	}
+	s.wecomMu.Unlock()
+
+	if matched == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no wecom bot configured for this path"})
+		return
+	}
+	matched.HandleCallback(c.Writer, c.Request)
+}
+
+// stopAllWeComBots 停止所有运行中的企业微信机器人
+func (s *Server) stopAllWeComBots() {
+	s.wecomMu.Lock()
+	defer s.wecomMu.Unlock()
+	for key := range s.wecomBots {
+		delete(s.wecomBots, key)
+	}
+}
+
 // reloadConfig 热重载配置：从文件重新读取并更新内存中的配置，无需重启服务
 func (s *Server) reloadConfig() error {
 	if s.configPath == "" {
@@ -407,12 +588,18 @@ func (s *Server) reloadConfig() error {
 		}
 	}
 
-	// 钉钉机器人热同步（多实例）
+	// 渠道机器人热同步
 	var newDTConfigs []config.DingTalkConfig
+	var newFTConfigs []config.FeishuConfig
+	var newWCConfigs []config.WeComConfig
 	if newGlobalConfig.Channels != nil {
 		newDTConfigs = newGlobalConfig.Channels.DingTalk
+		newFTConfigs = newGlobalConfig.Channels.Feishu
+		newWCConfigs = newGlobalConfig.Channels.WeCom
 	}
 	s.syncDingTalkBots(newDTConfigs, newClientConfig)
+	s.syncFeishuBots(newFTConfigs, newClientConfig)
+	s.syncWeComBots(newWCConfigs, newClientConfig)
 
 	// 原子替换配置指针
 	s.mu.Lock()

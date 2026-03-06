@@ -87,13 +87,27 @@ auth:
 #       clientId: "$DINGTALK_CLIENT_ID_2"
 #       clientSecret: "$DINGTALK_CLIENT_SECRET_2"
 #       employeeName: "employee-name-2"
-#   # 待实现：
-#   # wecom:
-#   #   - enabled: false
-#   #     corpId: ...
-#   # slack:
-#   #   - enabled: false
-#   #     botToken: ...
+#   feishu:
+#     - enabled: true
+#       appId: "$FEISHU_APP_ID"           # 飞书应用 App ID
+#       appSecret: "$FEISHU_APP_SECRET"   # 飞书应用 App Secret
+#       employeeName: "employee-name-1"
+#       conciseReply: true
+#       verificationToken: ""             # WebSocket 模式可留空
+#       eventEncryptKey: ""               # WebSocket 模式可留空
+#       allowedUsers: []                  # 飞书用户 open_id 白名单，为空则允许所有用户
+#       allowedChats: []                  # 飞书群聊 chat_id 白名单，为空则允许所有群聊
+#   wecom:
+#     - enabled: true
+#       corpId: "$WECOM_CORP_ID"          # 企业 ID
+#       agentId: 1000002                  # 应用 AgentID
+#       secret: "$WECOM_SECRET"           # 应用 Secret
+#       token: "$WECOM_TOKEN"             # 回调 Token（自定义，用于验证消息来源）
+#       encodingAESKey: "$WECOM_AES_KEY"  # 回调消息加密密钥（43位字符）
+#       callbackPath: "/wecom/callback"   # 回调路径（必须以 /wecom/ 开头）
+#       employeeName: "employee-name-1"
+#       conciseReply: true
+#       allowedUsers: []                  # 企业微信 userid 白名单，为空则允许所有用户
 
 # ─── OpenAI 兼容接口（可选）─────────────────────────────────────────────────────
 # 接口路径：POST /openai/v1/chat/completions、GET /openai/v1/models

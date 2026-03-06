@@ -374,9 +374,11 @@ details.field[open] .dt-route-arrow{transform:rotate(90deg)}
 
 <!-- ── Tab 4: Channels ── -->
 <div class="tab-panel" id="panel-dingtalk">
+
+  <!-- ── DingTalk ── -->
   <div class="card">
     <div class="card-title">
-      <span class="card-title-icon">&#129302;</span> 消息渠道
+      <span class="card-title-icon">&#129302;</span> 钉钉机器人
       <div class="spacer"></div>
       <button class="btn btn-ghost btn-sm" onclick="addDingTalkBot()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -384,22 +386,62 @@ details.field[open] .dt-route-arrow{transform:rotate(90deg)}
       </button>
     </div>
     <div id="dt-bots-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div style="margin-top:10px;padding:12px 14px;background:#ebf8ff;border:1px solid rgba(43,108,176,.2);border-radius:8px;font-size:12px;line-height:1.8;color:#2c5282">
+      <div style="font-weight:600;margin-bottom:4px">如何获取 AppKey / AppSecret？</div>
+      <ol style="padding-left:18px;margin:0;color:#2b6cb0">
+        <li>前往 <a href="https://open-dev.dingtalk.com/" target="_blank" rel="noopener" style="color:#2b6cb0;font-weight:600">钉钉开发者后台</a>，创建企业内部应用</li>
+        <li>添加「机器人」能力，消息接收模式选 <strong>Stream 模式</strong></li>
+        <li>在应用凭证页复制 <strong>AppKey</strong> 和 <strong>AppSecret</strong></li>
+      </ol>
+    </div>
   </div>
+
+  <!-- ── Feishu ── -->
+  <div class="card">
+    <div class="card-title">
+      <span class="card-title-icon">&#128640;</span> 飞书机器人
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addFeishuBot()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        添加飞书机器人
+      </button>
+    </div>
+    <div id="feishu-bots-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div style="margin-top:10px;padding:12px 14px;background:#f0fff4;border:1px solid rgba(39,103,73,.2);border-radius:8px;font-size:12px;line-height:1.8;color:#276749">
+      <div style="font-weight:600;margin-bottom:4px">如何获取飞书 App ID / App Secret？</div>
+      <ol style="padding-left:18px;margin:0;color:#2f855a">
+        <li>前往 <a href="https://open.feishu.cn/" target="_blank" rel="noopener" style="color:#2f855a;font-weight:600">飞书开放平台</a>，创建企业自建应用</li>
+        <li>开启「机器人」能力；在「事件订阅」页选择<strong>长连接（WebSocket）</strong>模式，添加 <code>im.message.receive_v1</code> 事件</li>
+        <li>在凭证页复制 <strong>App ID</strong> 和 <strong>App Secret</strong>；WebSocket 模式无需公网 IP</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ── WeCom ── -->
+  <div class="card">
+    <div class="card-title">
+      <span class="card-title-icon">&#128172;</span> 企业微信机器人
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addWeComBot()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        添加企业微信机器人
+      </button>
+    </div>
+    <div id="wecom-bots-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div style="margin-top:10px;padding:12px 14px;background:#fff5f5;border:1px solid rgba(197,48,48,.2);border-radius:8px;font-size:12px;line-height:1.8;color:#742a2a">
+      <div style="font-weight:600;margin-bottom:4px">如何配置企业微信回调？</div>
+      <ol style="padding-left:18px;margin:0;color:#9b2c2c">
+        <li>前往 <a href="https://work.weixin.qq.com/wework_admin" target="_blank" rel="noopener" style="color:#9b2c2c;font-weight:600">企业微信管理后台</a>，创建自建应用</li>
+        <li>在应用详情页获取 <strong>企业ID（CorpID）</strong>、<strong>AgentID</strong>、<strong>Secret</strong></li>
+        <li>在「接收消息」中设置回调 URL（需公网 IP），填写自定义 <strong>Token</strong> 和 <strong>EncodingAESKey</strong></li>
+        <li>回调路径默认为 <code>/wecom/callback</code>，与本服务部署在同一端口</li>
+      </ol>
+    </div>
+  </div>
+
   <div class="reload-note">
     <strong>保存后立即生效：</strong>
     <span class="badge-hot">channels.*</span>
-  </div>
-  <div style="padding:13px 16px;background:#ebf8ff;border:1px solid rgba(43,108,176,.25);border-radius:var(--radius-lg);font-size:12px;line-height:1.9;color:#2c5282">
-    <div style="font-weight:600;margin-bottom:5px;display:flex;align-items:center;gap:6px">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      如何在钉钉开发者后台获取 AppKey / AppSecret？
-    </div>
-    <ol style="padding-left:18px;color:#2b6cb0">
-      <li>前往 <a href="https://open-dev.dingtalk.com/" target="_blank" rel="noopener" style="color:#2b6cb0;font-weight:600;text-decoration:underline">钉钉开发者后台</a>，创建一个<strong>企业内部应用</strong></li>
-      <li>在应用能力页添加 <strong>「机器人」</strong> 能力</li>
-      <li>在机器人配置中，将消息接收模式设置为 <strong>Stream 模式</strong></li>
-      <li>在应用凭证页复制 <strong>AppKey（ClientId）</strong> 和 <strong>AppSecret（ClientSecret）</strong></li>
-    </ol>
   </div>
 </div>
 
@@ -890,6 +932,273 @@ function collectDingTalkBots() {
   }));
 }
 
+// ── Feishu bot list ───────────────────────────────────────────────────────
+function renderFeishuBots(bots) {
+  const container = document.getElementById('feishu-bots-list');
+  container.innerHTML = '';
+  (bots || []).forEach((bot, i) => container.appendChild(makeFeishuBotCard(bot, i)));
+}
+
+function makeFeishuBotCard(bot, idx) {
+  const div = document.createElement('div');
+  div.className = 'dt-bot-card';
+  const checkedAttr = bot.enabled ? 'checked' : '';
+  div.innerHTML =
+    '<div class="dt-bot-header">' +
+      '<div class="dt-bot-num">' + (idx + 1) + '</div>' +
+      '<span class="dt-bot-type" style="background:rgba(39,103,73,.1);color:#276749">Feishu</span>' +
+      '<div class="dt-bot-title">' + esc(bot.name || bot.appId || '未配置') + '</div>' +
+      '<label class="toggle" style="margin-left:auto">' +
+        '<input type="checkbox" data-field="enabled" ' + checkedAttr + '>' +
+        '<span class="toggle-track"></span>' +
+        '<span class="toggle-thumb"></span>' +
+      '</label>' +
+      '<button class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeFeishuBot(this)">删除</button>' +
+    '</div>' +
+    '<div class="dt-bot-fields">' +
+      '<div class="field field-full">' +
+        '<label>机器人名称</label>' +
+        '<input type="text" data-field="name" value="' + esc(bot.name || '') + '" placeholder="例如：飞书 HR 助手" autocomplete="off" oninput="onFeishuBotNameInput(this)">' +
+        '<span class="hint">仅用于在此页面标识，不影响功能</span>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>App ID <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="appId" value="' + esc(bot.appId || '') + '" placeholder="cli_xxxxxxxxxxxxxxxx" autocomplete="off" oninput="onFeishuBotAppIdInput(this)">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>App Secret <span style="color:var(--red)">*</span></label>' +
+        '<div class="input-wrap">' +
+          '<input type="password" data-field="appSecret" value="' + esc(bot.appSecret || '') + '" autocomplete="new-password">' +
+          '<button class="eye-btn" onclick="toggleEyeEl(this.previousElementSibling,this)" tabindex="-1">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>默认数字员工 ID <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="employeeName" value="' + esc(bot.employeeName || '') + '" placeholder="your-employee-id">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>Verification Token <span class="hint">（WebSocket 模式可留空）</span></label>' +
+        '<input type="text" data-field="verificationToken" value="' + esc(bot.verificationToken || '') + '" placeholder="" autocomplete="off">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>Event Encrypt Key <span class="hint">（WebSocket 模式可留空）</span></label>' +
+        '<div class="input-wrap">' +
+          '<input type="password" data-field="eventEncryptKey" value="' + esc(bot.eventEncryptKey || '') + '" autocomplete="new-password">' +
+          '<button class="eye-btn" onclick="toggleEyeEl(this.previousElementSibling,this)" tabindex="-1">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full" style="flex-direction:row;align-items:center;gap:10px;padding-top:2px">' +
+        '<label class="toggle">' +
+          '<input type="checkbox" data-field="conciseReply"' + (bot.conciseReply ? ' checked' : '') + '>' +
+          '<span class="toggle-track"></span>' +
+          '<span class="toggle-thumb"></span>' +
+        '</label>' +
+        '<div style="display:flex;flex-direction:column;gap:2px">' +
+          '<span style="font-size:13px;font-weight:500;color:var(--text)">简洁回复</span>' +
+          '<span class="hint" style="margin:0">开启后回复内容更精简，适合在 IM 中直接阅读</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>用户白名单（open_id）<span class="hint"> 留空则允许所有用户</span></label>' +
+        '<div class="tag-input-wrap" data-feishu-allowed-users>' +
+          (bot.allowedUsers || []).map(u => makeDtTag(u)).join('') +
+          '<input class="tag-input" type="text" placeholder="输入 open_id 后回车" onkeydown="dtTagKey(event,this)">' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>群聊白名单（chat_id）<span class="hint"> 留空则允许所有群聊</span></label>' +
+        '<div class="tag-input-wrap" data-feishu-allowed-chats>' +
+          (bot.allowedChats || []).map(c => makeDtTag(c)).join('') +
+          '<input class="tag-input" type="text" placeholder="输入 chat_id 后回车" onkeydown="dtTagKey(event,this)">' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  return div;
+}
+
+function addFeishuBot() {
+  const container = document.getElementById('feishu-bots-list');
+  container.appendChild(makeFeishuBotCard({ enabled: true, conciseReply: true }, container.children.length));
+}
+
+function removeFeishuBot(btn) {
+  btn.closest('.dt-bot-card').remove();
+  renumberFeishuBots();
+}
+
+function onFeishuBotNameInput(inp) {
+  const card = inp.closest('.dt-bot-card');
+  const titleEl = card.querySelector('.dt-bot-title');
+  const appId = card.querySelector('[data-field=appId]').value.trim();
+  titleEl.textContent = inp.value.trim() || appId || '未配置';
+}
+function onFeishuBotAppIdInput(inp) {
+  const card = inp.closest('.dt-bot-card');
+  const titleEl = card.querySelector('.dt-bot-title');
+  const name = card.querySelector('[data-field=name]').value.trim();
+  titleEl.textContent = name || inp.value.trim() || '未配置';
+}
+
+function renumberFeishuBots() {
+  document.querySelectorAll('#feishu-bots-list .dt-bot-card').forEach((card, i) => {
+    card.querySelector('.dt-bot-num').textContent = i + 1;
+  });
+}
+
+function collectFeishuBots() {
+  return Array.from(document.querySelectorAll('#feishu-bots-list .dt-bot-card')).map(card => ({
+    enabled:           card.querySelector('[data-field=enabled]').checked,
+    name:              card.querySelector('[data-field=name]').value.trim(),
+    appId:             card.querySelector('[data-field=appId]').value.trim(),
+    appSecret:         card.querySelector('[data-field=appSecret]').value.trim(),
+    employeeName:      card.querySelector('[data-field=employeeName]').value.trim(),
+    verificationToken: card.querySelector('[data-field=verificationToken]').value.trim(),
+    eventEncryptKey:   card.querySelector('[data-field=eventEncryptKey]').value.trim(),
+    conciseReply:      card.querySelector('[data-field=conciseReply]').checked,
+    allowedUsers:      Array.from(card.querySelectorAll('[data-feishu-allowed-users] .tag span:first-child')).map(el => el.textContent.trim()).filter(Boolean),
+    allowedChats:      Array.from(card.querySelectorAll('[data-feishu-allowed-chats] .tag span:first-child')).map(el => el.textContent.trim()).filter(Boolean),
+  }));
+}
+
+// ── WeCom bot list ────────────────────────────────────────────────────────
+function renderWeComBots(bots) {
+  const container = document.getElementById('wecom-bots-list');
+  container.innerHTML = '';
+  (bots || []).forEach((bot, i) => container.appendChild(makeWeComBotCard(bot, i)));
+}
+
+function makeWeComBotCard(bot, idx) {
+  const div = document.createElement('div');
+  div.className = 'dt-bot-card';
+  const checkedAttr = bot.enabled ? 'checked' : '';
+  div.innerHTML =
+    '<div class="dt-bot-header">' +
+      '<div class="dt-bot-num">' + (idx + 1) + '</div>' +
+      '<span class="dt-bot-type" style="background:rgba(197,48,48,.1);color:#c53030">WeCom</span>' +
+      '<div class="dt-bot-title">' + esc(bot.name || bot.corpId || '未配置') + '</div>' +
+      '<label class="toggle" style="margin-left:auto">' +
+        '<input type="checkbox" data-field="enabled" ' + checkedAttr + '>' +
+        '<span class="toggle-track"></span>' +
+        '<span class="toggle-thumb"></span>' +
+      '</label>' +
+      '<button class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeWeComBot(this)">删除</button>' +
+    '</div>' +
+    '<div class="dt-bot-fields">' +
+      '<div class="field field-full">' +
+        '<label>机器人名称</label>' +
+        '<input type="text" data-field="name" value="' + esc(bot.name || '') + '" placeholder="例如：企业微信 HR 助手" autocomplete="off" oninput="onWeComBotNameInput(this)">' +
+        '<span class="hint">仅用于在此页面标识，不影响功能</span>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>企业ID（CorpID）<span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="corpId" value="' + esc(bot.corpId || '') + '" placeholder="ww..." autocomplete="off" oninput="onWeComBotCorpIdInput(this)">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>AgentID <span style="color:var(--red)">*</span></label>' +
+        '<input type="number" data-field="agentId" value="' + esc(bot.agentId || '') + '" placeholder="1000002">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>Secret <span style="color:var(--red)">*</span></label>' +
+        '<div class="input-wrap">' +
+          '<input type="password" data-field="secret" value="' + esc(bot.secret || '') + '" autocomplete="new-password">' +
+          '<button class="eye-btn" onclick="toggleEyeEl(this.previousElementSibling,this)" tabindex="-1">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>默认数字员工 ID <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="employeeName" value="' + esc(bot.employeeName || '') + '" placeholder="your-employee-id">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>回调 Token <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="token" value="' + esc(bot.token || '') + '" placeholder="自定义 Token（用于验证消息来源）" autocomplete="off">' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>EncodingAESKey <span style="color:var(--red)">*</span> <span class="hint">（43位）</span></label>' +
+        '<div class="input-wrap">' +
+          '<input type="password" data-field="encodingAESKey" value="' + esc(bot.encodingAESKey || '') + '" autocomplete="new-password">' +
+          '<button class="eye-btn" onclick="toggleEyeEl(this.previousElementSibling,this)" tabindex="-1">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>回调路径（CallbackPath）</label>' +
+        '<input type="text" data-field="callbackPath" value="' + esc(bot.callbackPath || '/wecom/callback') + '" placeholder="/wecom/callback">' +
+        '<span class="hint">必须以 /wecom/ 开头，与企业微信后台填写的路径一致</span>' +
+      '</div>' +
+      '<div class="field field-full" style="flex-direction:row;align-items:center;gap:10px;padding-top:2px">' +
+        '<label class="toggle">' +
+          '<input type="checkbox" data-field="conciseReply"' + (bot.conciseReply ? ' checked' : '') + '>' +
+          '<span class="toggle-track"></span>' +
+          '<span class="toggle-thumb"></span>' +
+        '</label>' +
+        '<div style="display:flex;flex-direction:column;gap:2px">' +
+          '<span style="font-size:13px;font-weight:500;color:var(--text)">简洁回复</span>' +
+          '<span class="hint" style="margin:0">开启后回复内容更精简，适合在 IM 中直接阅读</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>用户白名单（userid）<span class="hint"> 留空则允许所有用户</span></label>' +
+        '<div class="tag-input-wrap" data-wecom-allowed-users>' +
+          (bot.allowedUsers || []).map(u => makeDtTag(u)).join('') +
+          '<input class="tag-input" type="text" placeholder="输入 userid 后回车" onkeydown="dtTagKey(event,this)">' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  return div;
+}
+
+function addWeComBot() {
+  const container = document.getElementById('wecom-bots-list');
+  container.appendChild(makeWeComBotCard({ enabled: true, conciseReply: true, callbackPath: '/wecom/callback' }, container.children.length));
+}
+
+function removeWeComBot(btn) {
+  btn.closest('.dt-bot-card').remove();
+  renumberWeComBots();
+}
+
+function onWeComBotNameInput(inp) {
+  const card = inp.closest('.dt-bot-card');
+  const titleEl = card.querySelector('.dt-bot-title');
+  const corpId = card.querySelector('[data-field=corpId]').value.trim();
+  titleEl.textContent = inp.value.trim() || corpId || '未配置';
+}
+function onWeComBotCorpIdInput(inp) {
+  const card = inp.closest('.dt-bot-card');
+  const titleEl = card.querySelector('.dt-bot-title');
+  const name = card.querySelector('[data-field=name]').value.trim();
+  titleEl.textContent = name || inp.value.trim() || '未配置';
+}
+
+function renumberWeComBots() {
+  document.querySelectorAll('#wecom-bots-list .dt-bot-card').forEach((card, i) => {
+    card.querySelector('.dt-bot-num').textContent = i + 1;
+  });
+}
+
+function collectWeComBots() {
+  return Array.from(document.querySelectorAll('#wecom-bots-list .dt-bot-card')).map(card => ({
+    enabled:        card.querySelector('[data-field=enabled]').checked,
+    name:           card.querySelector('[data-field=name]').value.trim(),
+    corpId:         card.querySelector('[data-field=corpId]').value.trim(),
+    agentId:        parseInt(card.querySelector('[data-field=agentId]').value) || 0,
+    secret:         card.querySelector('[data-field=secret]').value.trim(),
+    token:          card.querySelector('[data-field=token]').value.trim(),
+    encodingAESKey: card.querySelector('[data-field=encodingAESKey]').value.trim(),
+    callbackPath:   card.querySelector('[data-field=callbackPath]').value.trim() || '/wecom/callback',
+    employeeName:   card.querySelector('[data-field=employeeName]').value.trim(),
+    conciseReply:   card.querySelector('[data-field=conciseReply]').checked,
+    allowedUsers:   Array.from(card.querySelectorAll('[data-wecom-allowed-users] .tag span:first-child')).map(el => el.textContent.trim()).filter(Boolean),
+  }));
+}
+
 // ── API Key list ──────────────────────────────────────────────────────────
 function renderApiKeys(keys) {
   const container = document.getElementById('apikeys-list');
@@ -939,6 +1248,8 @@ function populate(data) {
   renderRoles((a.local || {}).roles);
 
   renderDingTalkBots(data.dingtalk || []);
+  renderFeishuBots(data.feishu || []);
+  renderWeComBots(data.wecom || []);
 
   document.getElementById('openai-enabled').checked = !!data.openaiEnabled;
   renderApiKeys((data.openai || {}).apiKeys);
@@ -974,6 +1285,8 @@ function collect() {
       local: { users, roles },
     },
     dingtalk:      collectDingTalkBots(),
+    feishu:        collectFeishuBots(),
+    wecom:         collectWeComBots(),
     openaiEnabled: oaiOn,
     openai:        { apiKeys: collectApiKeys() },
   };
