@@ -3,9 +3,13 @@ package api
 import (
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
+	"sop-chat/internal/client"
 	"sop-chat/internal/config"
 	"sop-chat/internal/embed"
+	"sop-chat/pkg/sopchat"
 
 	"github.com/gin-gonic/gin"
 )
@@ -459,4 +463,90 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已保存并成功应用，无需重启"})
+}
+
+// handleTestAK 用提交的 AK 凭据向 apsara-ops 发送一条测试消息，验证凭据有效性和权限
+func (s *Server) handleTestAK(c *gin.Context) {
+	var req struct {
+		AccessKeyId     string `json:"accessKeyId"`
+		AccessKeySecret string `json:"accessKeySecret"`
+		Endpoint        string `json:"endpoint"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误: " + err.Error()})
+		return
+	}
+	if req.AccessKeyId == "" || req.AccessKeySecret == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "AccessKeyId 和 AccessKeySecret 不能为空"})
+		return
+	}
+
+	endpoint := req.Endpoint
+	if endpoint == "" {
+		endpoint = "cms.cn-hangzhou.aliyuncs.com"
+	}
+
+	sopClient, err := client.NewCMSClient(&client.Config{
+		AccessKeyId:     req.AccessKeyId,
+		AccessKeySecret: req.AccessKeySecret,
+		Endpoint:        endpoint,
+	})
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "创建客户端失败: " + err.Error()})
+		return
+	}
+
+	type testResult struct {
+		text string
+		err  error
+	}
+	done := make(chan testResult, 1)
+
+	go func() {
+		_, msgs, err := sopClient.SendMessageSync(&sopchat.ChatOptions{
+			EmployeeName: "apsara-ops",
+			ThreadId:     "",
+			Message:      "现在几点了",
+		})
+		if err != nil {
+			done <- testResult{err: err}
+			return
+		}
+		// 从 Contents 中提取 type=text 的文本内容
+		var sb strings.Builder
+		for _, msg := range msgs {
+			if msg == nil {
+				continue
+			}
+			for _, content := range msg.Contents {
+				if content == nil {
+					continue
+				}
+				if t, ok := content["type"]; ok && t == "text" {
+					if v, ok := content["value"]; ok {
+						if s, ok := v.(string); ok {
+							sb.WriteString(s)
+						}
+					}
+				}
+			}
+		}
+		done <- testResult{text: sb.String()}
+	}()
+
+	select {
+	case res := <-done:
+		if res.err != nil {
+			log.Printf("[test-ak] 测试失败: %v", res.err)
+			c.JSON(http.StatusOK, gin.H{"ok": false, "error": res.err.Error()})
+			return
+		}
+		preview := res.text
+		if len([]rune(preview)) > 120 {
+			preview = string([]rune(preview)[:120]) + "..."
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "preview": preview})
+	case <-time.After(60 * time.Second):
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "请求超时（60s），请检查网络或 Endpoint 是否正确"})
+	}
 }

@@ -259,6 +259,7 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/config-ui", s.handleConfigUIPage)
 	s.router.GET("/config-ui/api/config", s.configUITokenMiddleware(), s.handleGetConfig)
 	s.router.POST("/config-ui/api/config", s.configUITokenMiddleware(), s.handleSaveConfig)
+	s.router.POST("/config-ui/api/test-ak", s.configUITokenMiddleware(), s.handleTestAK)
 
 	// 静态文件服务（前端资源）
 	frontendFS := embed.GetFrontendFS()
