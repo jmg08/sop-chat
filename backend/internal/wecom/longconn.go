@@ -458,6 +458,9 @@ func (b *LongConnBot) handleCallback(frame *longConnFrame) {
 		workCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
+		// 立即发送"思考中"提示，让用户知道消息已收到
+		b.sendStreamReply(reqID, streamID, "💭 思考中...", false)
+
 		threadID, err := b.getOrCreateThreadID(fromUser, cfg.EmployeeName, body.ChatID)
 		if err != nil {
 			log.Printf("[WeCom-LongConn] 创建线程失败: %v", err)
