@@ -163,6 +163,9 @@ func (b *Bot) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		workCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
+		// 立即发送"思考中"提示，让用户知道消息已收到
+		_, _ = b.msgManager.SendTextToUser(workCtx, msg.FromUserName, "💭 思考中...")
+
 		threadId, err := b.getOrCreateThreadId(msg.FromUserName, cfg.EmployeeName)
 		if err != nil {
 			log.Printf("[WeCom] 创建线程失败: %v", err)
@@ -188,6 +191,18 @@ func (b *Bot) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		if _, err := b.msgManager.SendMarkdownToUser(workCtx, msg.FromUserName, wecomMd); err != nil {
 			log.Printf("[WeCom] 发送 Markdown 失败，降级为文本: %v", err)
 			_, _ = b.msgManager.SendTextToUser(workCtx, msg.FromUserName, replyText)
+		}
+
+		// 如果配置了群机器人 Webhook，同步推送到群聊
+		if webhookURL := cfg.WebhookURL; webhookURL != "" {
+			if err := SendWebhookMarkdown(workCtx, webhookURL, wecomMd); err != nil {
+				log.Printf("[WeCom] Webhook 发送 Markdown 失败，降级为文本: %v", err)
+				if textErr := SendWebhookText(workCtx, webhookURL, replyText); textErr != nil {
+					log.Printf("[WeCom] Webhook 文本降级也失败: %v", textErr)
+				}
+			} else {
+				log.Printf("[WeCom] Webhook 推送成功 to=%s", webhookURL)
+			}
 		}
 	}
 

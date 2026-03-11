@@ -49,6 +49,10 @@ type Server struct {
 	// 企业微信机器人生命周期管理（keyed by corpId:agentId）
 	wecomMu   sync.Mutex
 	wecomBots map[string]*wecom.Bot
+
+	// 企业微信长连接群机器人生命周期管理（keyed by botId）
+	wecomLongConnMu   sync.Mutex
+	wecomLongConnBots map[string]*wecom.LongConnBot
 }
 
 // generateConfigUIToken 生成随机的配置 UI 访问令牌
@@ -104,9 +108,15 @@ func NewServer(cfg *client.Config, globalConfig *config.Config, configPath strin
 			if len(globalConfig.Channels.Feishu) > 0 {
 				server.syncFeishuBots(globalConfig.Channels.Feishu, cmsClientCfg)
 			}
-			// 启动企业微信机器人
+			// 启动企业微信应用（HTTP 回调）
 			if len(globalConfig.Channels.WeCom) > 0 {
 				server.syncWeComBots(globalConfig.Channels.WeCom, cmsClientCfg)
+			}
+			// 启动企业微信群聊机器人（长连接）：优先从独立 wecomBot 配置读取，
+			// 同时兼容旧的 wecom[].botLongConn 嵌套配置
+			wecomBotConfigs := server.mergeWeComBotConfigs(globalConfig.Channels)
+			if len(wecomBotConfigs) > 0 {
+				server.syncWeComLongConnBots(wecomBotConfigs, cmsClientCfg)
 			}
 		}
 	}
@@ -557,6 +567,102 @@ func (s *Server) stopAllWeComBots() {
 	}
 }
 
+// syncWeComLongConnBots 将运行中的企业微信长连接群机器人与新配置列表对齐
+func (s *Server) syncWeComLongConnBots(newConfigs []config.WeComBotConfig, cmsConfig *config.ClientConfig) {
+	s.wecomLongConnMu.Lock()
+	defer s.wecomLongConnMu.Unlock()
+
+	if s.wecomLongConnBots == nil {
+		s.wecomLongConnBots = make(map[string]*wecom.LongConnBot)
+	}
+
+	// 收集新配置中所有启用的长连接 bot（keyed by botId）
+	newEnabled := make(map[string]config.WeComBotConfig)
+	for _, wb := range newConfigs {
+		if wb.Enabled && wb.BotID != "" && wb.BotSecret != "" && wb.EmployeeName != "" {
+			newEnabled[wb.BotID] = wb
+		}
+	}
+
+	// 停止已不在新配置中的实例
+	for botID, bot := range s.wecomLongConnBots {
+		if _, ok := newEnabled[botID]; !ok {
+			log.Printf("停止企业微信长连接机器人: botId=%s", botID)
+			bot.Stop()
+			delete(s.wecomLongConnBots, botID)
+		}
+	}
+
+	// 启动或重启有变化的实例
+	for botID, wbCfg := range newEnabled {
+		wbCopy := wbCfg
+		if existing, ok := s.wecomLongConnBots[botID]; ok {
+			existingCfg := existing.Config()
+			if existingCfg.CredsEqual(&wbCopy) {
+				existing.UpdateConfig(&wbCopy)
+				continue
+			}
+			log.Printf("重启企业微信长连接机器人（配置变更）: botId=%s", botID)
+			existing.Stop()
+			delete(s.wecomLongConnBots, botID)
+		}
+		log.Printf("启动企业微信长连接机器人: botId=%s employee=%s", botID, wbCopy.EmployeeName)
+		bot := wecom.NewLongConnBot(&wbCopy, cmsConfig)
+		bot.Start()
+		s.wecomLongConnBots[botID] = bot
+	}
+}
+
+// mergeWeComBotConfigs 合并独立 wecomBot 配置和旧的 wecom[].botLongConn 嵌套配置
+// 优先使用独立 wecomBot 配置，旧嵌套配置作为兼容回退
+func (s *Server) mergeWeComBotConfigs(channels *config.ChannelsConfig) []config.WeComBotConfig {
+	if channels == nil {
+		return nil
+	}
+
+	// 收集独立 wecomBot 配置中已有的 botId
+	seen := make(map[string]bool)
+	result := make([]config.WeComBotConfig, 0, len(channels.WeComBot))
+	for _, wb := range channels.WeComBot {
+		result = append(result, wb)
+		if wb.BotID != "" {
+			seen[wb.BotID] = true
+		}
+	}
+
+	// 兼容旧的 wecom[].botLongConn 嵌套配置：如果 botId 未在独立配置中出现，则转换并追加
+	for _, wc := range channels.WeCom {
+		if wc.BotLongConn != nil && wc.BotLongConn.Enabled && wc.BotLongConn.BotID != "" {
+			if !seen[wc.BotLongConn.BotID] {
+				result = append(result, config.WeComBotConfig{
+					Enabled:              wc.BotLongConn.Enabled,
+					BotID:                wc.BotLongConn.BotID,
+					BotSecret:            wc.BotLongConn.BotSecret,
+					EmployeeName:         wc.EmployeeName,
+					ConciseReply:         wc.ConciseReply,
+					URL:                  wc.BotLongConn.URL,
+					PingIntervalSec:      wc.BotLongConn.PingIntervalSec,
+					ReconnectDelaySec:    wc.BotLongConn.ReconnectDelaySec,
+					MaxReconnectDelaySec: wc.BotLongConn.MaxReconnectDelaySec,
+				})
+				seen[wc.BotLongConn.BotID] = true
+			}
+		}
+	}
+
+	return result
+}
+
+// stopAllWeComLongConnBots 停止所有运行中的企业微信长连接群机器人
+func (s *Server) stopAllWeComLongConnBots() {
+	s.wecomLongConnMu.Lock()
+	defer s.wecomLongConnMu.Unlock()
+	for botID, bot := range s.wecomLongConnBots {
+		bot.Stop()
+		delete(s.wecomLongConnBots, botID)
+	}
+}
+
 // reloadConfig 热重载配置：从文件重新读取并更新内存中的配置，无需重启服务
 func (s *Server) reloadConfig() error {
 	if s.configPath == "" {
@@ -601,6 +707,8 @@ func (s *Server) reloadConfig() error {
 	s.syncDingTalkBots(newDTConfigs, newClientConfig)
 	s.syncFeishuBots(newFTConfigs, newClientConfig)
 	s.syncWeComBots(newWCConfigs, newClientConfig)
+	wecomBotConfigs := s.mergeWeComBotConfigs(newGlobalConfig.Channels)
+	s.syncWeComLongConnBots(wecomBotConfigs, newClientConfig)
 
 	// 原子替换配置指针
 	s.mu.Lock()
