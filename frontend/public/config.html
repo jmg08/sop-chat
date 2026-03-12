@@ -162,6 +162,35 @@ details.field[open] .dt-route-arrow{transform:rotate(90deg)}
 /* ── Spinner ── */
 .spinner{width:14px;height:14px;border:2px solid rgba(102,126,234,.25);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Scheduler task card ── */
+.task-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.task-card-header{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none;transition:background .12s}
+.task-card-header:hover{background:rgba(128,90,213,.05)}
+.task-card-num{width:20px;height:20px;background:#805ad5;color:#fff;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.task-card-type{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(128,90,213,.12);color:#805ad5;border:1px solid rgba(128,90,213,.3);font-family:'SF Mono',monospace;flex-shrink:0}
+.task-card-title{font-size:13px;font-weight:500;flex:1;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-card-meta{font-size:11px;color:var(--text3);font-family:'SF Mono','Fira Code',monospace;flex-shrink:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-card-chevron{width:16px;height:16px;flex-shrink:0;color:var(--text3);transition:transform .2s}
+.task-card.expanded .task-card-chevron{transform:rotate(90deg)}
+.task-card-body{display:none;flex-direction:column;gap:12px;padding:0 14px 14px}
+.task-card.expanded .task-card-body{display:flex}
+.task-card-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.task-card-fields{grid-template-columns:1fr}}
+.webhook-section{background:var(--surface3);border:1px solid var(--border2);border-radius:var(--radius);padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){.webhook-section{grid-template-columns:1fr}}
+.webhook-section-title{grid-column:1/-1;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:2px}
+textarea.prompt-input{width:100%;background:#fff;color:var(--text);border:2px solid rgba(102,126,234,0.15);border-radius:var(--radius);padding:7px 10px;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s;resize:vertical;min-height:72px;line-height:1.5}
+textarea.prompt-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.cron-hint{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.cron-chip{display:inline-block;background:var(--surface3);border:1px solid var(--border2);border-radius:4px;padding:1px 7px;font-size:11px;font-family:'SF Mono','Fira Code',monospace;color:var(--accent2);cursor:pointer}
+.cron-chip:hover{background:rgba(102,126,234,.12);border-color:rgba(102,126,234,.4)}
+.task-trigger-bar{display:flex;align-items:center;gap:12px;padding:10px 14px;background:linear-gradient(135deg,rgba(128,90,213,.07),rgba(102,126,234,.07));border:1px dashed rgba(128,90,213,.35);border-radius:var(--radius)}
+.btn-trigger{height:36px;padding:0 18px;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;border:none;display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#805ad5,#667eea);color:#fff;box-shadow:0 2px 10px rgba(128,90,213,.35);transition:opacity .12s,transform .1s,box-shadow .12s;white-space:nowrap;flex-shrink:0}
+.btn-trigger:hover:not(:disabled){opacity:.92;transform:translateY(-1px);box-shadow:0 4px 16px rgba(128,90,213,.45)}
+.btn-trigger:active:not(:disabled){transform:translateY(0)}
+.btn-trigger:disabled{opacity:.45;cursor:not-allowed}
+.trigger-hint{font-size:12px;color:var(--text3)}
 @keyframes pulse-orange{from{box-shadow:0 0 0 2px rgba(237,137,54,0.4)}to{box-shadow:0 0 0 5px rgba(237,137,54,0.08)}}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:rgba(102,126,234,0.25);border-radius:3px}
@@ -192,6 +221,7 @@ details.field[open] .dt-route-arrow{transform:rotate(90deg)}
   <button class="tab-btn active" data-tab="global" onclick="switchTab('global')">&#128279; 基础设置</button>
   <button class="tab-btn" data-tab="auth" onclick="switchTab('auth')">&#128272; 认证与用户</button>
   <button class="tab-btn" data-tab="dingtalk" onclick="switchTab('dingtalk')">&#129302; Channels（机器人）</button>
+  <button class="tab-btn" data-tab="scheduler" onclick="switchTab('scheduler')">&#9200; 定时任务</button>
   <button class="tab-btn" data-tab="openai" onclick="switchTab('openai')">&#129504; OpenAI 兼容接口</button>
 </nav>
 
@@ -507,6 +537,35 @@ details.field[open] .dt-route-arrow{transform:rotate(90deg)}
   </div>
 </div>
 
+
+<!-- ── Tab 5: Scheduler ── -->
+<div class="tab-panel" id="panel-scheduler">
+  <div class="card">
+    <div class="card-title">
+      <span class="card-title-icon">&#9200;</span> 定时任务
+      <div class="spacer"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addScheduledTask()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        添加定时任务
+      </button>
+    </div>
+    <div id="tasks-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    <div style="margin-top:10px;padding:12px 14px;background:#faf5ff;border:1px solid rgba(128,90,213,.22);border-radius:8px;font-size:12px;line-height:1.9;color:#44337a">
+      <div style="font-weight:600;margin-bottom:4px">定时任务使用说明</div>
+      <ul style="padding-left:18px;margin:0;color:#553c9a">
+        <li>Cron 格式采用标准 5 字段：<code style="background:rgba(128,90,213,.1);padding:1px 5px;border-radius:3px">分 时 日 月 周</code>，时区取全局配置的 TimeZone</li>
+        <li>每次触发时向数字员工发送 Prompt，完整回复将推送到指定 Webhook</li>
+        <li>Webhook 类型支持 <strong>dingtalk</strong>（钉钉）、<strong>feishu</strong>（飞书）、<strong>wecom</strong>（企业微信群机器人）</li>
+        <li>消息类型：<strong>text</strong> = 纯文本，<strong>markdown</strong> = Markdown 格式（钉钉/企业微信），<strong>post</strong> = 富文本（飞书）</li>
+        <li>修改后保存配置即立即热重载，无需重启服务</li>
+      </ul>
+    </div>
+  </div>
+  <div class="reload-note">
+    <strong>保存后立即生效：</strong>
+    <span class="badge-hot">scheduledTasks.*</span>
+  </div>
+</div>
 
 </main>
 </div>
@@ -1456,6 +1515,8 @@ function populate(data) {
   renderApiKeys((data.openai || {}).apiKeys);
   onOpenAIToggle();
 
+  renderScheduledTasks(data.scheduledTasks || []);
+
   // 记录当前 AK 快照（加载完成 = 已知状态，不需要重新测试）
   markAKTested();
 }
@@ -1488,12 +1549,13 @@ function collect() {
       passwordSalt: val('a-salt'),
       local: { users, roles },
     },
-    dingtalk:      collectDingTalkBots(),
-    feishu:        collectFeishuBots(),
-    wecom:         collectWeComBots(),
-    wecomBot:      collectWeComGroupBots(),
-    openaiEnabled: oaiOn,
-    openai:        { apiKeys: collectApiKeys() },
+    dingtalk:       collectDingTalkBots(),
+    feishu:         collectFeishuBots(),
+    wecom:          collectWeComBots(),
+    wecomBot:       collectWeComGroupBots(),
+    openaiEnabled:  oaiOn,
+    openai:         { apiKeys: collectApiKeys() },
+    scheduledTasks: collectScheduledTasks(),
   };
 }
 
@@ -1504,6 +1566,271 @@ function val(id) {
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Scheduled tasks ───────────────────────────────────────────────────────
+const CRON_EXAMPLES = [
+  { label: '每5分钟',           value: '*/5 * * * *'  },
+  { label: '每15分钟',          value: '*/15 * * * *' },
+  { label: '每30分钟',          value: '*/30 * * * *' },
+  { label: '每小时整点',        value: '0 * * * *'    },
+  { label: '每天 09:00',        value: '0 9 * * *'    },
+  { label: '工作日 09:00',      value: '0 9 * * 1-5'  },
+  { label: '每天 08:30',        value: '30 8 * * *'   },
+  { label: '每周一 09:00',      value: '0 9 * * 1'    },
+  { label: '每天 18:00',        value: '0 18 * * *'   },
+];
+
+function renderScheduledTasks(tasks) {
+  const container = document.getElementById('tasks-list');
+  container.innerHTML = '';
+  (tasks || []).forEach((t, i) => container.appendChild(makeTaskCard(t, i)));
+}
+
+function makeTaskCard(task, idx, expanded) {
+  const div = document.createElement('div');
+  div.className = 'task-card' + (expanded ? ' expanded' : '');
+  const checkedAttr = task.enabled ? 'checked' : '';
+  const cronChips = CRON_EXAMPLES.map(e =>
+    '<span class="cron-chip" onclick="fillCron(this,\'' + esc(e.value) + '\')" title="' + esc(e.value) + '">' + esc(e.label) + '</span>'
+  ).join('');
+  const whType = task.webhook ? (task.webhook.type || '') : '';
+  const whUrl  = task.webhook ? (task.webhook.url || '') : '';
+  const whMsg  = task.webhook ? (task.webhook.msgType || 'text') : 'text';
+  const whTitle = task.webhook ? (task.webhook.title || '') : '';
+  const titleField = whMsg === 'text' ? 'style="display:none"' : '';
+
+  div.innerHTML =
+    '<div class="task-card-header" onclick="toggleTaskCard(this)">' +
+      '<svg class="task-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>' +
+      '<div class="task-card-num">' + (idx + 1) + '</div>' +
+      '<span class="task-card-type">Scheduler</span>' +
+      '<div class="task-card-title">' + esc(task.name || '未命名任务') + '</div>' +
+      '<span class="task-card-meta">' + esc(task.cron || '') + '</span>' +
+      '<label class="toggle" style="margin-left:8px" onclick="event.stopPropagation()">' +
+        '<input type="checkbox" data-field="enabled" ' + checkedAttr + '>' +
+        '<span class="toggle-track"></span>' +
+        '<span class="toggle-thumb"></span>' +
+      '</label>' +
+      '<button class="btn btn-danger btn-sm" style="margin-left:6px" onclick="event.stopPropagation();removeScheduledTask(this)">删除</button>' +
+    '</div>' +
+    '<div class="task-card-body">' +
+    '<div class="task-card-fields">' +
+      '<div class="field">' +
+        '<label>任务名称 <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="name" value="' + esc(task.name || '') + '" placeholder="daily-standup" autocomplete="off" oninput="onTaskNameInput(this)">' +
+        '<span class="hint">唯一标识，不含空格</span>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>Cron 表达式 <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="cron" value="' + esc(task.cron || '') + '" placeholder="0 9 * * 1-5" autocomplete="off" oninput="onCronInput(this)">' +
+        '<div class="cron-hint">' + cronChips + '</div>' +
+      '</div>' +
+      '<div class="field">' +
+        '<label>数字员工 ID <span style="color:var(--red)">*</span></label>' +
+        '<input type="text" data-field="employeeName" value="' + esc(task.employeeName || '') + '" placeholder="apsara-ops" autocomplete="off">' +
+      '</div>' +
+      '<div class="field field-full">' +
+        '<label>Prompt（发送给数字员工的问题）<span style="color:var(--red)"> *</span></label>' +
+        '<textarea class="prompt-input" data-field="prompt" placeholder="请总结昨日工作进展和今日计划">' + esc(task.prompt || '') + '</textarea>' +
+      '</div>' +
+      '<div class="field field-full" style="margin-bottom:0">' +
+        '<div class="webhook-section">' +
+          '<div class="webhook-section-title">&#128279; Webhook 推送目标</div>' +
+          '<div class="field">' +
+            '<label>平台类型 <span style="color:var(--red)">*</span></label>' +
+            '<select data-field="webhookType" onchange="onWebhookTypeChange(this)">' +
+              '<option value=""' + (!whType ? ' selected' : '') + '>请选择...</option>' +
+              '<option value="dingtalk"' + (whType === 'dingtalk' ? ' selected' : '') + '>钉钉（DingTalk）</option>' +
+              '<option value="feishu"'   + (whType === 'feishu'   ? ' selected' : '') + '>飞书（Feishu）</option>' +
+              '<option value="wecom"'    + (whType === 'wecom'    ? ' selected' : '') + '>企业微信（WeCom）</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label>消息类型</label>' +
+            '<select data-field="webhookMsgType" onchange="onMsgTypeChange(this)">' +
+              '<option value="text"'     + (whMsg === 'text'     ? ' selected' : '') + '>text（纯文本）</option>' +
+              '<option value="markdown"' + (whMsg === 'markdown' ? ' selected' : '') + '>markdown（钉钉/企业微信）</option>' +
+              '<option value="post"'     + (whMsg === 'post'     ? ' selected' : '') + '>post（飞书富文本）</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="field field-full">' +
+            '<label>Webhook URL <span style="color:var(--red)">*</span></label>' +
+            '<input type="text" data-field="webhookUrl" value="' + esc(whUrl) + '" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." autocomplete="off">' +
+          '</div>' +
+          '<div class="field field-full" data-title-field ' + titleField + '>' +
+            '<label>消息标题 <span class="hint">（markdown/post 格式时使用）</span></label>' +
+            '<input type="text" data-field="webhookTitle" value="' + esc(whTitle) + '" placeholder="每日通知">' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="field field-full" style="margin-bottom:0">' +
+        '<div class="task-trigger-bar">' +
+          '<button class="btn btn-trigger" onclick="triggerTask(this)">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>' +
+            '立即触发测试' +
+          '</button>' +
+          '<span class="trigger-hint">使用当前表单内容立即执行一次，无需先保存</span>' +
+        '</div>' +
+        '<div class="task-trigger-result" style="display:none;margin-top:8px;padding:10px 14px;border-radius:var(--radius);font-size:12px;line-height:1.7;word-break:break-all;white-space:pre-wrap"></div>' +
+      '</div>' +
+    '</div>' + // task-card-body
+    '</div>';
+  return div;
+}
+
+function addScheduledTask() {
+  const container = document.getElementById('tasks-list');
+  container.appendChild(makeTaskCard({
+    enabled: true,
+    cron: '0 9 * * 1-5',
+    employeeName: 'apsara-ops',
+    webhook: { type: 'dingtalk', msgType: 'text' },
+  }, container.children.length, true));
+}
+
+function removeScheduledTask(btn) {
+  btn.closest('.task-card').remove();
+  renumberTaskCards();
+}
+
+function renumberTaskCards() {
+  document.querySelectorAll('#tasks-list .task-card').forEach((card, i) => {
+    card.querySelector('.task-card-num').textContent = i + 1;
+  });
+}
+
+function toggleTaskCard(headerEl) {
+  headerEl.closest('.task-card').classList.toggle('expanded');
+}
+
+function onTaskNameInput(inp) {
+  const card = inp.closest('.task-card');
+  card.querySelector('.task-card-title').textContent = inp.value.trim() || '未命名任务';
+}
+
+function onCronInput(inp) {
+  const card = inp.closest('.task-card');
+  card.querySelector('.task-card-meta').textContent = inp.value.trim();
+}
+
+function fillCron(chip, value) {
+  const card = chip.closest('.task-card');
+  const input = card.querySelector('[data-field=cron]');
+  if (input) {
+    input.value = value;
+    const meta = card.querySelector('.task-card-meta');
+    if (meta) meta.textContent = value;
+  }
+}
+
+function onWebhookTypeChange(sel) {
+  // 自动选择推荐的 msgType
+  const card = sel.closest('.task-card');
+  const msgSel = card.querySelector('[data-field=webhookMsgType]');
+  if (!msgSel) return;
+  if (sel.value === 'feishu' && msgSel.value === 'markdown') {
+    msgSel.value = 'post';
+  } else if ((sel.value === 'dingtalk' || sel.value === 'wecom') && msgSel.value === 'post') {
+    msgSel.value = 'markdown';
+  }
+  onMsgTypeChange(msgSel);
+}
+
+function onMsgTypeChange(sel) {
+  const card = sel.closest('.task-card');
+  const titleField = card.querySelector('[data-title-field]');
+  if (!titleField) return;
+  titleField.style.display = sel.value === 'text' ? 'none' : '';
+}
+
+function collectScheduledTasks() {
+  return Array.from(document.querySelectorAll('#tasks-list .task-card')).map(card => ({
+    name:         card.querySelector('[data-field=name]').value.trim(),
+    enabled:      card.querySelector('[data-field=enabled]').checked,
+    cron:         card.querySelector('[data-field=cron]').value.trim(),
+    prompt:       card.querySelector('[data-field=prompt]').value.trim(),
+    employeeName: card.querySelector('[data-field=employeeName]').value.trim(),
+    webhook: {
+      type:    card.querySelector('[data-field=webhookType]').value,
+      url:     card.querySelector('[data-field=webhookUrl]').value.trim(),
+      msgType: card.querySelector('[data-field=webhookMsgType]').value,
+      title:   card.querySelector('[data-field=webhookTitle]').value.trim(),
+    },
+  }));
+}
+
+// ── Trigger task ─────────────────────────────────────────────────────────
+async function triggerTask(btn) {
+  const card = btn.closest('.task-card');
+  const resultEl = card.querySelector('.task-trigger-result');
+
+  // 收集当前表单值
+  const task = {
+    name:         card.querySelector('[data-field=name]').value.trim(),
+    employeeName: card.querySelector('[data-field=employeeName]').value.trim(),
+    prompt:       card.querySelector('[data-field=prompt]').value.trim(),
+    webhook: {
+      type:    card.querySelector('[data-field=webhookType]').value,
+      url:     card.querySelector('[data-field=webhookUrl]').value.trim(),
+      msgType: card.querySelector('[data-field=webhookMsgType]').value,
+      title:   card.querySelector('[data-field=webhookTitle]').value.trim(),
+    },
+  };
+
+  if (!task.employeeName) { showTaskResult(resultEl, 'error', '❌ 请先填写数字员工 ID'); return; }
+  if (!task.prompt)        { showTaskResult(resultEl, 'error', '❌ 请先填写 Prompt'); return; }
+
+  const origHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div>&nbsp;执行中…';
+  showTaskResult(resultEl, 'loading', '正在向数字员工发送请求，请稍候…');
+
+  try {
+    const res = await fetch('/config-ui/api/trigger-task?token=' + encodeURIComponent(token), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showTaskResult(resultEl, 'error', '❌ ' + (data.error || '触发失败'));
+    } else {
+      let msg = '✅ 数字员工回复：\n' + (data.reply || '（空）');
+      if (task.webhook.url) {
+        msg += data.webhookSent
+          ? '\n\n✅ Webhook 已成功推送'
+          : '\n\n⚠️ Webhook 推送失败：' + (data.webhookErr || '未知错误');
+      } else {
+        msg += '\n\n（未填写 Webhook URL，跳过推送）';
+      }
+      showTaskResult(resultEl, 'success', msg);
+    }
+  } catch(e) {
+    showTaskResult(resultEl, 'error', '❌ 网络错误: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
+  }
+}
+
+function showTaskResult(el, type, msg) {
+  el.style.display = 'block';
+  el.style.whiteSpace = 'pre-wrap';
+  const styles = {
+    loading: ['var(--blue-bg)',   'var(--blue-bd)',   'var(--blue)'],
+    success: ['var(--green-bg)',  'var(--green-bd)',  'var(--green)'],
+    error:   ['var(--red-bg)',    'var(--red-bd)',    'var(--red)'],
+  };
+  const [bg, bd, color] = styles[type] || styles.loading;
+  el.style.background = bg;
+  el.style.border = '1px solid ' + bd;
+  el.style.color = color;
+  if (type === 'loading') {
+    el.innerHTML = '<div style="display:inline-flex;align-items:center;gap:8px"><div class="spinner"></div>' + esc(msg) + '</div>';
+  } else {
+    el.textContent = msg;
+  }
 }
 
 // ── Load config from server ───────────────────────────────────────────────

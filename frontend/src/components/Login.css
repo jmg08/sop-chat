@@ -107,3 +107,72 @@
 .login-footer a:hover {
   text-decoration: underline;
 }
+
+/* ── Setup required (full-page card) ── */
+.setup-required-box {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
+  padding: 40px 44px;
+  width: 100%;
+  max-width: 460px;
+  text-align: center;
+}
+
+.setup-required-icon {
+  font-size: 44px;
+  margin-bottom: 16px;
+}
+
+.setup-required-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 0 0 18px;
+}
+
+.setup-required-reasons {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setup-required-reasons li {
+  background: #fff8ed;
+  border: 1px solid #f6c90e;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #7a4f00;
+  text-align: left;
+}
+
+.setup-required-reasons li::before {
+  content: '· ';
+  font-weight: 700;
+}
+
+.setup-required-hint {
+  font-size: 14px;
+  color: #4a5568;
+  line-height: 1.7;
+  margin: 0 0 10px;
+}
+
+.setup-required-path {
+  font-size: 12px;
+  color: #718096;
+  margin: 0;
+}
+
+.setup-required-path code {
+  background: #f7f7f7;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #667eea;
+}

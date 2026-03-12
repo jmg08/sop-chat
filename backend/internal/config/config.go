@@ -25,6 +25,38 @@ type Config struct {
 
 	// OpenAI 兼容接口配置（可选）
 	OpenAI *OpenAICompatConfig `yaml:"openai,omitempty"`
+
+	// 定时任务配置（可选）
+	ScheduledTasks []ScheduledTaskConfig `yaml:"scheduledTasks,omitempty"`
+}
+
+// ScheduledTaskConfig 定时任务配置
+type ScheduledTaskConfig struct {
+	// 任务名称（唯一标识）
+	Name string `yaml:"name"`
+	// 是否启用
+	Enabled bool `yaml:"enabled"`
+	// Cron 表达式（标准 5 字段：分 时 日 月 周）
+	// 示例："0 9 * * 1-5" 表示工作日每天 9:00
+	Cron string `yaml:"cron"`
+	// 发送给数字员工的问题/提示语
+	Prompt string `yaml:"prompt"`
+	// 目标数字员工名称
+	EmployeeName string `yaml:"employeeName"`
+	// Webhook 配置：任务结果的发送目标
+	Webhook WebhookConfig `yaml:"webhook"`
+}
+
+// WebhookConfig Webhook 目标配置
+type WebhookConfig struct {
+	// 类型：dingtalk | feishu | wecom
+	Type string `yaml:"type"`
+	// Webhook URL
+	URL string `yaml:"url"`
+	// 消息类型：text | markdown（默认 text）
+	MsgType string `yaml:"msgType,omitempty"`
+	// Markdown 消息标题（钉钉/飞书 markdown 格式时使用）
+	Title string `yaml:"title,omitempty"`
 }
 
 // ChannelsConfig 通知渠道配置（聚合所有 IM/消息渠道）
@@ -474,6 +506,12 @@ func (c *Config) expandEnvVars() {
 		for i, key := range c.OpenAI.APIKeys {
 			c.OpenAI.APIKeys[i] = expandEnvVar(key)
 		}
+	}
+
+	// 展开定时任务配置中的环境变量
+	for i := range c.ScheduledTasks {
+		c.ScheduledTasks[i].Webhook.URL = expandEnvVar(c.ScheduledTasks[i].Webhook.URL)
+		c.ScheduledTasks[i].EmployeeName = expandEnvVar(c.ScheduledTasks[i].EmployeeName)
 	}
 }
 

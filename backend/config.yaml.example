@@ -135,3 +135,45 @@ auth:
 #   apiKeys:
 #     - "sk-your-secret-key-1"
 #     - "sk-your-secret-key-2"
+
+# ─── 定时任务配置 ──────────────────────────────────────────────────────────────
+# 定时向指定数字员工提问，并将回复通过 Webhook 推送到钉钉/飞书/企业微信群
+# cron 格式：标准 5 字段（分 时 日 月 周），时区取 global.timeZone
+#   示例："0 9 * * 1-5"   = 工作日每天 09:00
+#         "30 8 * * *"    = 每天 08:30
+#         "0 */2 * * *"   = 每 2 小时整点
+# webhook.type：dingtalk | feishu | wecom
+# webhook.msgType：text（默认）| markdown
+#
+# scheduledTasks:
+#   - name: "daily-standup"          # 任务唯一名称
+#     enabled: true
+#     cron: "0 9 * * 1-5"           # 工作日每天 9:00
+#     prompt: "请总结昨日工作进展和今日计划"
+#     employeeName: "my-sop-employee"
+#     webhook:
+#       type: dingtalk
+#       url: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
+#       msgType: markdown
+#       title: "每日站会摘要"
+#
+#   - name: "weekly-report"
+#     enabled: true
+#     cron: "0 18 * * 5"            # 每周五 18:00
+#     prompt: "请汇总本周工作成果和下周重点计划"
+#     employeeName: "my-sop-employee"
+#     webhook:
+#       type: feishu
+#       url: "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK_ID"
+#       msgType: post
+#       title: "周报摘要"
+#
+#   - name: "wecom-daily-alert"
+#     enabled: false
+#     cron: "0 10 * * *"
+#     prompt: "请检查今日待处理事项并给出优先级建议"
+#     employeeName: "my-sop-employee"
+#     webhook:
+#       type: wecom
+#       url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+#       msgType: markdown

@@ -9,6 +9,7 @@ import (
 	"sop-chat/internal/client"
 	"sop-chat/internal/config"
 	"sop-chat/internal/embed"
+	"sop-chat/internal/scheduler"
 	"sop-chat/pkg/sopchat"
 
 	"github.com/gin-gonic/gin"
@@ -59,14 +60,33 @@ code{background:#eef0ff;padding:2px 6px;border-radius:4px;font-size:.8rem}</styl
 
 // configUIResponse 是返回给前端的结构化配置数据（不暴露文件路径）
 type configUIResponse struct {
-	Global        configUIGlobal      `json:"global"`
-	Auth          configUIAuth        `json:"auth"`
-	DingTalk      []configUIDingTalk  `json:"dingtalk"`
-	Feishu        []configUIFeishu    `json:"feishu"`
-	WeCom         []configUIWeCom     `json:"wecom"`
-	WeComBot      []configUIWeComBot  `json:"wecomBot"`
-	OpenAIEnabled bool                `json:"openaiEnabled"`
-	OpenAI        configUIOpenAI      `json:"openai"`
+	Global         configUIGlobal           `json:"global"`
+	Auth           configUIAuth             `json:"auth"`
+	DingTalk       []configUIDingTalk       `json:"dingtalk"`
+	Feishu         []configUIFeishu         `json:"feishu"`
+	WeCom          []configUIWeCom          `json:"wecom"`
+	WeComBot       []configUIWeComBot       `json:"wecomBot"`
+	OpenAIEnabled  bool                     `json:"openaiEnabled"`
+	OpenAI         configUIOpenAI           `json:"openai"`
+	ScheduledTasks []configUIScheduledTask  `json:"scheduledTasks"`
+}
+
+// configUIScheduledTask 定时任务配置（UI 层）
+type configUIScheduledTask struct {
+	Name         string          `json:"name"`
+	Enabled      bool            `json:"enabled"`
+	Cron         string          `json:"cron"`
+	Prompt       string          `json:"prompt"`
+	EmployeeName string          `json:"employeeName"`
+	Webhook      configUIWebhook `json:"webhook"`
+}
+
+// configUIWebhook Webhook 配置（UI 层）
+type configUIWebhook struct {
+	Type    string `json:"type"`
+	URL     string `json:"url"`
+	MsgType string `json:"msgType"`
+	Title   string `json:"title"`
 }
 
 type configUIGlobal struct {
@@ -169,11 +189,12 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 	if cfg == nil {
 		// 配置文件不存在时返回空配置，让前端呈现空表单供用户填写
 		c.JSON(http.StatusOK, configUIResponse{
-			DingTalk: []configUIDingTalk{},
-			Feishu:   []configUIFeishu{},
-			WeCom:    []configUIWeCom{},
-			WeComBot: []configUIWeComBot{},
-			OpenAI:   configUIOpenAI{APIKeys: []string{}},
+			DingTalk:       []configUIDingTalk{},
+			Feishu:         []configUIFeishu{},
+			WeCom:          []configUIWeCom{},
+			WeComBot:       []configUIWeComBot{},
+			OpenAI:         configUIOpenAI{APIKeys: []string{}},
+			ScheduledTasks: []configUIScheduledTask{},
 		})
 		return
 	}
@@ -312,6 +333,28 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 		resp.OpenAI = configUIOpenAI{APIKeys: keys}
 	} else {
 		resp.OpenAI = configUIOpenAI{APIKeys: []string{}}
+	}
+
+	// 定时任务配置
+	if len(cfg.ScheduledTasks) > 0 {
+		resp.ScheduledTasks = make([]configUIScheduledTask, len(cfg.ScheduledTasks))
+		for i, t := range cfg.ScheduledTasks {
+			resp.ScheduledTasks[i] = configUIScheduledTask{
+				Name:         t.Name,
+				Enabled:      t.Enabled,
+				Cron:         t.Cron,
+				Prompt:       t.Prompt,
+				EmployeeName: t.EmployeeName,
+				Webhook: configUIWebhook{
+					Type:    t.Webhook.Type,
+					URL:     t.Webhook.URL,
+					MsgType: t.Webhook.MsgType,
+					Title:   t.Webhook.Title,
+				},
+			}
+		}
+	} else {
+		resp.ScheduledTasks = []configUIScheduledTask{}
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -489,6 +532,25 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		cfg.OpenAI = &config.OpenAICompatConfig{Enabled: true}
 	}
 
+	// 定时任务配置
+	for _, t := range req.ScheduledTasks {
+		if t.Name != "" || t.EmployeeName != "" || t.Webhook.URL != "" {
+			cfg.ScheduledTasks = append(cfg.ScheduledTasks, config.ScheduledTaskConfig{
+				Name:         t.Name,
+				Enabled:      t.Enabled,
+				Cron:         t.Cron,
+				Prompt:       t.Prompt,
+				EmployeeName: t.EmployeeName,
+				Webhook: config.WebhookConfig{
+					Type:    t.Webhook.Type,
+					URL:     t.Webhook.URL,
+					MsgType: t.Webhook.MsgType,
+					Title:   t.Webhook.Title,
+				},
+			})
+		}
+	}
+
 	// 保存到文件
 	if err := config.SaveConfig(s.configPath, cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -508,6 +570,88 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已保存并成功应用，无需重启"})
+}
+
+// handleTriggerTask 立即执行一个定时任务（使用前端传入的当前表单值，无需先保存）
+func (s *Server) handleTriggerTask(c *gin.Context) {
+	var req configUIScheduledTask
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误: " + err.Error()})
+		return
+	}
+	if req.EmployeeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "employeeName 不能为空"})
+		return
+	}
+	if req.Prompt == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prompt 不能为空"})
+		return
+	}
+
+	s.mu.RLock()
+	cfg := s.config
+	s.mu.RUnlock()
+
+	if cfg == nil || cfg.AccessKeyId == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "CMS 凭据未配置，请先在基础设置中填写 AccessKeyId / AccessKeySecret"})
+		return
+	}
+
+	clientCfg := &config.ClientConfig{
+		AccessKeyId:     cfg.AccessKeyId,
+		AccessKeySecret: cfg.AccessKeySecret,
+		Endpoint:        cfg.Endpoint,
+	}
+
+	type triggerResult struct {
+		reply string
+		err   error
+	}
+	done := make(chan triggerResult, 1)
+
+	go func() {
+		reply, err := scheduler.QueryEmployee(clientCfg, req.EmployeeName, req.Prompt)
+		done <- triggerResult{reply: reply, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		if res.err != nil {
+			log.Printf("[Scheduler] 触发测试失败 task=%q: %v", req.Name, res.err)
+			c.JSON(http.StatusOK, gin.H{"ok": false, "error": res.err.Error()})
+			return
+		}
+		log.Printf("[Scheduler] 触发测试完成 task=%q employee=%q 响应(%d 字): %s",
+			req.Name, req.EmployeeName, len([]rune(res.reply)), res.reply)
+
+		// 如果填了 Webhook URL，顺便推送
+		webhookSent := false
+		var webhookErr string
+		if req.Webhook.URL != "" {
+			if err := scheduler.SendToWebhook(config.WebhookConfig{
+				Type:    req.Webhook.Type,
+				URL:     req.Webhook.URL,
+				MsgType: req.Webhook.MsgType,
+				Title:   req.Webhook.Title,
+			}, res.reply); err != nil {
+				webhookErr = err.Error()
+				log.Printf("[Scheduler] 触发测试 webhook 发送失败 task=%q: %v", req.Name, err)
+			} else {
+				webhookSent = true
+				log.Printf("[Scheduler] 触发测试 webhook 发送成功 task=%q type=%s", req.Name, req.Webhook.Type)
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          true,
+			"reply":       res.reply,
+			"webhookSent": webhookSent,
+			"webhookErr":  webhookErr,
+		})
+
+	case <-time.After(3 * time.Minute):
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "请求超时（3 分钟），数字员工响应过慢"})
+	}
 }
 
 // handleTestAK 用提交的 AK 凭据向 apsara-ops 发送一条测试消息，验证凭据有效性和权限

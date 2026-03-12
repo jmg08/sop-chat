@@ -15,6 +15,7 @@ import (
 	"sop-chat/internal/dingtalk"
 	"sop-chat/internal/embed"
 	"sop-chat/internal/feishu"
+	"sop-chat/internal/scheduler"
 	"sop-chat/internal/wecom"
 	"sop-chat/pkg/sopchat"
 
@@ -53,6 +54,9 @@ type Server struct {
 	// 企业微信长连接群机器人生命周期管理（keyed by botId）
 	wecomLongConnMu   sync.Mutex
 	wecomLongConnBots map[string]*wecom.LongConnBot
+
+	// 定时任务调度器
+	taskScheduler *scheduler.Scheduler
 }
 
 // generateConfigUIToken 生成随机的配置 UI 访问令牌
@@ -118,6 +122,17 @@ func NewServer(cfg *client.Config, globalConfig *config.Config, configPath strin
 			if len(wecomBotConfigs) > 0 {
 				server.syncWeComLongConnBots(wecomBotConfigs, cmsClientCfg)
 			}
+		}
+	}
+
+	// 启动定时任务调度器
+	if globalConfig != nil && len(globalConfig.ScheduledTasks) > 0 {
+		cmsClientCfg, cmsErr := globalConfig.ToClientConfig()
+		if cmsErr != nil {
+			log.Printf("警告: 无法获取 CMS 配置，定时任务未启动: %v", cmsErr)
+		} else {
+			server.taskScheduler = scheduler.New(globalConfig.GetTimeZone())
+			server.taskScheduler.Start(globalConfig.ScheduledTasks, cmsClientCfg)
 		}
 	}
 
@@ -201,6 +216,7 @@ func (s *Server) setupRoutes() {
 
 		// 系统配置接口（无需认证）
 		api.GET("/system/config", s.handleGetSystemConfig)
+		api.GET("/system/setup-status", s.handleGetSetupStatus)
 
 		// 认证相关接口（无需认证）
 		api.POST("/auth/login", s.handleLogin)
@@ -270,6 +286,7 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/config-ui/api/config", s.configUITokenMiddleware(), s.handleGetConfig)
 	s.router.POST("/config-ui/api/config", s.configUITokenMiddleware(), s.handleSaveConfig)
 	s.router.POST("/config-ui/api/test-ak", s.configUITokenMiddleware(), s.handleTestAK)
+	s.router.POST("/config-ui/api/trigger-task", s.configUITokenMiddleware(), s.handleTriggerTask)
 
 	// 静态文件服务（前端资源）
 	frontendFS := embed.GetFrontendFS()
@@ -709,6 +726,15 @@ func (s *Server) reloadConfig() error {
 	s.syncWeComBots(newWCConfigs, newClientConfig)
 	wecomBotConfigs := s.mergeWeComBotConfigs(newGlobalConfig.Channels)
 	s.syncWeComLongConnBots(wecomBotConfigs, newClientConfig)
+
+	// 热重载定时任务
+	if s.taskScheduler != nil {
+		s.taskScheduler.Reload(newGlobalConfig.ScheduledTasks, newClientConfig)
+	} else if len(newGlobalConfig.ScheduledTasks) > 0 {
+		// 首次加载定时任务（之前没有调度器实例）
+		s.taskScheduler = scheduler.New(newGlobalConfig.GetTimeZone())
+		s.taskScheduler.Start(newGlobalConfig.ScheduledTasks, newClientConfig)
+	}
 
 	// 原子替换配置指针
 	s.mu.Lock()
